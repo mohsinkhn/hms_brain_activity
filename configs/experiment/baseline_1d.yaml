@@ -1,0 +1,101 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data:
+  - override /trainer: default
+  - override /model: 
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["baseline", "1d"]
+
+seed: 12345786
+
+trainer:
+  min_epochs: 10
+  max_epochs: 10
+  gradient_clip_val: 0.5
+  precision: 16
+
+model:
+  _target_: src.nn_models.litmodels.LitModel
+
+  optimizer:
+    _target_: timm.optim.MADGRAD
+    _partial_: true
+    lr: 0.003
+    weight_decay: 0.0001
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.OneCycleLR
+    _partial_: true
+    max_lr: 0.001
+    pct_start: 0.1
+    total_steps: 1250
+    div_factor: 10
+    final_div_factor: 100
+
+  scheduler_interval: "step"
+  net:
+    _target_: src.nn_models.basemodels.MultiScaleModel
+    in_channels: 8
+    out_channels: 6
+    latent_len: 6
+    strides:
+      - 2
+      - 2
+      - 1
+      - 1
+    dilations:
+      - 1
+      - 2
+      - 4
+      - 8
+    feature_dims:
+      - 16
+      - 32
+      - 64
+      - 128
+  # net:
+  #   _target_: src.nn_models.basemodels.InvertResidualGRU
+  #   in_channels: 8
+  #   num_outputs: 6
+  #   stem_kernel: 3
+  #   kernel_sizes:
+  #     - 5
+  #     - 5
+  #     - 5
+  #     - 5
+  #   strides:
+  #     - 2
+  #     - 2
+  #     - 2
+  #     - 2
+  #   filters:
+  #     - 32
+  #     - 32
+  #     - 64
+  #     - 128
+  #   expand_ratio: 2
+  #   latent_steps: 64
+  compile: false
+
+data:
+  _target_: src.nn_datasets.eeg_datamodule.EEGDataModule
+  data_dir: ${paths.data_dir}
+  batch_size: 128 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+  num_folds: 5
+  fold_id: 0
+  num_workers: 0
+  pin_memory: false
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "1Dmodels"
+  aim:
+    experiment: "1d cnn + rnn"

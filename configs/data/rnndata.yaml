@@ -1,0 +1,14 @@
+_target_: src.nn_datasets.eeg_datamodule.EEGDataModule
+data_dir: ${paths.data_dir}
+batch_size: 128 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+num_folds: 5
+fold_id: 0
+num_workers: 0
+pin_memory: false
+  transforms:
+    - _target_: src.nn_augs.eeg_transforms.SideSwap
+      p: 0.2
+    - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
+      p: 0.2
+    - _target_: src.nn_augs.eeg_transforms.SignFlip
+      p: 0.0
