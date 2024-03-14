@@ -28,7 +28,7 @@ model:
     _target_: timm.optim.MADGRAD
     _partial_: true
     lr: 0.001
-    weight_decay: 0.001
+    weight_decay: 0.0005
     #nesterov: true
     #momentum: 0.9
 
@@ -46,7 +46,7 @@ model:
     features:
       - 8
       - 16
-      - 32
+      - 16
       - 32
       - 64
       - 128
@@ -57,31 +57,31 @@ model:
       - 9
       - 9
       - 9 
-    conv2d_features: 8 
-  compile: false
+    model_name: "efficientnet_b1"
+  compile: true
 
 data:
   _target_: src.nn_datasets.eeg_datamodule.EEGDataModule
   data_dir: ${paths.data_dir}
   batch_size: 64 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
   num_folds: 5
-  fold_id: 0
+  fold_id: 1
   num_workers: 0
   transforms:
     - _target_: src.nn_augs.eeg_transforms.SideSwap
-      p: 0.5
-    - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
       p: 0.3
+    - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
+      p: 0.2
     - _target_: src.nn_augs.eeg_transforms.SignFlip
       p: 0.2
     - _target_: src.nn_augs.eeg_transforms.EdgeMasking
-      p: 0.3
+      p: 0.2
     - _target_: src.nn_augs.eeg_transforms.Stretch
-      p: 0.3
+      p: 0.2
     - _target_: src.nn_augs.eeg_transforms.Roll
-      p: 0.3
+      p: 0.2
     - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
-      p: 0.3
+      p: 0.2
   pin_memory: false
 
 logger:

@@ -170,25 +170,26 @@ class LitModel(L.LightningModule):
         # if "conv2d" not in self.model.__class__.__name__.lower():
         #     optimizer = self.hparams.optimizer(params=self.model.parameters())
         # else:
-        #     conv2d_parameters = self.model.conv2d.parameters()
-        #     other_parameters = [
-        #         p for p in self.model.model.parameters() if p not in conv2d_parameters
-        #     ]
-        #     optimizer = self.hparams.optimizer(
-        #         [
-        #             {
-        #                 "params": conv2d_parameters,
-        #                 "lr": self.optimizer.lr * 0.1,
-        #                 "weight_decay": self.optimizer.weight_decay * 0.1,
-        #             },
-        #             {
-        #                 "params": other_parameters,
-        #                 "lr": self.optimizer.lr * 1.0,
-        #                 "weight_decay": self.optimizer.weight_decay * 1.0,
-        #             },
-        #         ]
-        #     )
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
+        conv2d_params = [
+            kv[1] for kv in self.model.named_parameters() if ".conv2d" in kv[0]
+        ]
+        other_params = [
+            kv[1] for kv in self.model.named_parameters() if ".conv2d" not in kv[0]
+        ]
+        optimizer = self.hparams.optimizer(
+            [
+                {
+                    "params": conv2d_params,
+                    "lr": self.hparams.optimizer.keywords["lr"] * 0.1,
+                    "weight_decay": self.hparams.optimizer.keywords["weight_decay"]
+                    * 0.1,
+                },
+                {
+                    "params": other_params,
+                },
+            ]
+        )
+        # optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
