@@ -1,14 +1,19 @@
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import lightning as L
+import numpy as np
 import pandas as pd
 from timm.optim import AdamW, Nadam, MADGRAD
 import torch
 from torch import nn
 import torch.nn.functional as F
+import wandb
 
 from src.kaggle_metric import score
 from src.settings import TARGET_COLS
+from src.nn_datasets.eegdataset import load_eeg_data
+from src.utils.plot_batches import plot_batch
 
 
 class KLDivLossWithLogits(nn.KLDivLoss):
@@ -43,7 +48,7 @@ class LitModel(L.LightningModule):
         return self.model(x)
 
     def step(self, batch):
-        x, y = batch
+        x, y = batch["data"], batch["targets"]
         # y = F.softmax(y, dim=1)
         logits = self.forward(x)
         loss = self.criterion(logits, y)
@@ -57,25 +62,85 @@ class LitModel(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         loss, preds, y = self.step(batch)
-        self.validation_step_outputs.append({"preds": preds, "y": y})
+        self.validation_step_outputs.append(
+            {
+                "preds": preds,
+                "y": y,
+                "eeg_id": batch["eeg_id"],
+                "eeg_sub_id": batch["eeg_sub_id"],
+            }
+        )
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self) -> None:
         preds = torch.cat([x["preds"] for x in self.validation_step_outputs], dim=0)
         y = torch.cat([x["y"] for x in self.validation_step_outputs], dim=0)
+        eeg_ids = torch.cat([x["eeg_id"] for x in self.validation_step_outputs], dim=0)
+        eeg_sub_ids = torch.cat(
+            [x["eeg_sub_id"] for x in self.validation_step_outputs], dim=0
+        )
         preds = pd.DataFrame(preds.cpu().numpy(), columns=TARGET_COLS)
-        preds["id"] = ["id_" + str(x) for x in range(len(preds))]
-
+        preds["eeg_id"] = eeg_ids.cpu().numpy()
+        preds_agg = preds.groupby("eeg_id")[TARGET_COLS].sum().reset_index()
+        preds_agg[TARGET_COLS] = preds_agg[TARGET_COLS] / preds_agg[TARGET_COLS].sum(
+            axis=1
+        ).values.reshape(-1, 1)
         y = pd.DataFrame(y.cpu().numpy(), columns=TARGET_COLS)
-        y["id"] = ["id_" + str(x) for x in range(len(y))]
+        y["eeg_id"] = eeg_ids.cpu().numpy()
+        y_agg = y.groupby("eeg_id")[TARGET_COLS].sum().reset_index()
+        y_agg[TARGET_COLS] = y_agg[TARGET_COLS] / y_agg[TARGET_COLS].sum(
+            axis=1
+        ).values.reshape(-1, 1)
         self.log(
             "val/score",
-            score(y, preds, row_id_column_name="id"),
+            score(y_agg, preds_agg, row_id_column_name="eeg_id"),
             on_step=False,
             on_epoch=True,
             prog_bar=True,
         )
         self.validation_step_outputs = []
+
+        # Log averages of predictions
+        avg_preds = preds_agg[TARGET_COLS].mean().tolist()
+        avg_y = y_agg[TARGET_COLS].mean().tolist()
+        table = wandb.Table(data=[avg_preds, avg_y], columns=TARGET_COLS)
+        wandb.log({"means preds/y": table})
+
+        # Plot confusion matrix
+        preds_label = np.argmax(preds[TARGET_COLS].values, axis=1)
+        y_label = np.argmax(y[TARGET_COLS].values, axis=1)
+        cm = wandb.plot.confusion_matrix(
+            y_true=y_label, preds=preds_label, class_names=TARGET_COLS
+        )
+        wandb.log({"val/cm": cm})
+
+        # Plot some of the batches with errors
+        error_idx = np.where(preds_label != y_label)[0]
+        if len(error_idx) > 0:
+            error_idx = np.random.choice(error_idx, size=min(8, len(error_idx)))
+            batch_x = []
+            batch_y = y[TARGET_COLS].values[error_idx]
+            for idx in error_idx:
+                np_data = load_eeg_data(
+                    Path("./data/train_eegs"), eeg_ids[idx], eeg_sub_ids[idx]
+                )[8:-8]
+                batch_x.append(np_data)
+            batch_x = np.stack(batch_x)
+            Path("./val_errors").mkdir(exist_ok=True, parents=True)
+            plot_batch(
+                batch_x,
+                batch_y,
+                preds=preds[TARGET_COLS].values[error_idx],
+                save_path="./val_errors/{eeg_ids[idx]}_{eeg_sub_ids[idx]}.jpg",
+            )
+
+            wandb.log(
+                {
+                    f"val/errors": wandb.Image(
+                        "./val_errors/{eeg_ids[idx]}_{eeg_sub_ids[idx]}.jpg",
+                    )
+                }
+            )
 
     def predict_step(self, batch, batch_idx):
         _, preds, _ = self.step(batch)
@@ -102,6 +167,27 @@ class LitModel(L.LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
+        # if "conv2d" not in self.model.__class__.__name__.lower():
+        #     optimizer = self.hparams.optimizer(params=self.model.parameters())
+        # else:
+        #     conv2d_parameters = self.model.conv2d.parameters()
+        #     other_parameters = [
+        #         p for p in self.model.model.parameters() if p not in conv2d_parameters
+        #     ]
+        #     optimizer = self.hparams.optimizer(
+        #         [
+        #             {
+        #                 "params": conv2d_parameters,
+        #                 "lr": self.optimizer.lr * 0.1,
+        #                 "weight_decay": self.optimizer.weight_decay * 0.1,
+        #             },
+        #             {
+        #                 "params": other_parameters,
+        #                 "lr": self.optimizer.lr * 1.0,
+        #                 "weight_decay": self.optimizer.weight_decay * 1.0,
+        #             },
+        #         ]
+        #     )
         optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)

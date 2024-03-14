@@ -160,8 +160,14 @@ class InceptionConv1DModel(nn.Module):
         self.conv1d_encoder = Conv1DInceptionEncoder(
             in_channels, features=features, kernel_sizes=kernel_sizes, dropout=dropout
         )
+        self.ekg_encoder = Conv1DInceptionEncoder(
+            in_channels,
+            features=[8] * (len(features) - 1) + [features[-1]],
+            kernel_sizes=[5] * len(kernel_sizes),
+            dropout=dropout,
+        )
         self.conv2d = timm.create_model(
-            "resnet34",
+            "efficientnet_b1",
             pretrained=True,
             num_classes=0,
             in_chans=in_channels,
@@ -169,26 +175,24 @@ class InceptionConv1DModel(nn.Module):
         )
         self.in_channels = in_channels
         self.bnorm = nn.BatchNorm2d(conv2d_features)
-        self.ekg_rnn = nn.GRU(1, rnn_dim, batch_first=True)
-
         self.relu = nn.ReLU()
-        # self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.max_pool = nn.AdaptiveMaxPool2d((1, 5))
-        self.classifier = nn.Linear(512 * 5 + rnn_dim, out_channels)
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.max_pool = nn.AdaptiveMaxPool2d((1, 1))
+        self.classifier = nn.Linear(1280 * 2, out_channels)
 
     def forward(self, x):
         xc = []
         x1 = x[:, :, : self.in_channels]
-        x2 = x[:, :, [self.in_channels]]
         for i in range(x1.shape[2]):
             xc.append(self.conv1d_encoder(x1[:, :, i].unsqueeze(1)))
-        xc = torch.stack(xc, dim=1)
-        x1 = self.conv2d(xc)
-        x1 = self.max_pool(x1)
-        x1 = x1.view(x1.size(0), -1)
-        _, x2 = self.ekg_rnn(x2)
-        x2 = x2.view(x2.size(1), -1)
-        x = torch.cat([x1, x2], dim=1)
+        x2 = x[:, :, self.in_channels].unsqueeze(1)
+        # x2 = self.ekg_encoder(x2)
+        # xc.append(x2)
+        x = torch.stack(xc, dim=1)
+        x = self.conv2d(x)
+        # x = self.avg_pool(x)
+        x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
+        x = x.view(x.size(0), -1)
         # x = self.bnorm(x)
         # x = self.relu(x)
         # print(x.shape)

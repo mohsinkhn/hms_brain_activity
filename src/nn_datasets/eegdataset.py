@@ -87,7 +87,7 @@ class HMSTrainEEGDataV2(Dataset):
     def __init__(self, df, data_dir, transforms=None):
         self.df = df  # .unique(subset=["eeg_id", *TARGET_COLS])
         self.df = get_sample_weights(self.df)
-        self.unq_ids = self.df["unq_row_id"].unique().to_list()
+        self.unq_ids = self.df["eeg_id"].unique().to_list()
         self.data_dir = data_dir
         self.df = norm_target_cols(self.df)
         self.transforms = None
@@ -97,7 +97,7 @@ class HMSTrainEEGDataV2(Dataset):
 
     def __getitem__(self, idx):
         unq_id = self.unq_ids[idx]
-        patient_df = self.df.filter(pl.col("unq_row_id") == unq_id)
+        patient_df = self.df.filter(pl.col("eeg_id") == unq_id)
         idx = random.choices(
             range(len(patient_df)),  # weights=patient_df["sample_weight"].to_numpy()
         )[0]
@@ -111,7 +111,12 @@ class HMSTrainEEGDataV2(Dataset):
                 data = tfm(data)
         targets = patient_df[TARGET_COLS].values.flatten()
         # targets = targets / targets.sum()
-        return data.astype(np.float32), targets.astype(np.float32)
+        return {
+            "data": data.astype(np.float32),
+            "targets": targets.astype(np.float32),
+            "eeg_id": eeg_id.astype(np.int32),
+            "eeg_sub_id": eeg_sub_id.astype(np.int32),
+        }
 
 
 class HMSValEEGData(Dataset):
@@ -132,7 +137,12 @@ class HMSValEEGData(Dataset):
 
         targets = patient_df[TARGET_COLS].values.flatten()
         # targets = targets / targets.sum()
-        return data.astype(np.float32), targets.astype(np.float32)
+        return {
+            "data": data.astype(np.float32),
+            "targets": targets.astype(np.float32),
+            "eeg_id": eeg_id.astype(np.int64),
+            "eeg_sub_id": eeg_sub_id.astype(np.int64),
+        }
 
 
 def fix_nulls(data):
