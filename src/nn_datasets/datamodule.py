@@ -7,13 +7,15 @@ import polars as pl
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader, Dataset
 
+from src.nn_datasets import components
+
 
 class LitDataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: str,
-        train_dataset: Dataset,
-        val_dataset: Dataset,
+        train_dataset: str,
+        val_dataset: str,
         batch_size: int,
         num_workers: int,
         pin_memory: bool,
@@ -147,12 +149,12 @@ class LitDataModule(LightningDataModule):
         train_df = df.filter(pl.col("patient_id").is_in(patient_ids[train_idx]))
         val_df = df.filter(pl.col("patient_id").is_in(patient_ids[val_idx]))
 
-        train_dataset = self.hparams.train_dataset(
+        train_dataset = eval(f"components.{self.hparams.train_dataset}")(
             df=train_df,
             data_dir=Path(self.hparams.data_dir) / "train_eegs",
             transforms=self.hparams.transforms,
         )
-        val_dataset = self.hparams.val_dataset(
+        val_dataset = eval(f"components.{self.hparams.val_dataset}")(
             df=val_df,
             data_dir=Path(self.hparams.data_dir) / "train_eegs",
             transforms=None,
@@ -165,5 +167,4 @@ class LitDataModule(LightningDataModule):
 
         :return: The test dataset.
         """
-        df = pl.read_csv(Path(self.hparams.data_dir) / "test.csv")
-        return HMSValEEGData(df, Path(self.hparams.data_dir) / "test_eegs")
+        pass

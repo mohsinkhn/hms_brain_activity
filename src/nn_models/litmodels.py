@@ -12,7 +12,7 @@ import wandb
 
 from src.kaggle_metric import score
 from src.settings import TARGET_COLS
-from src.nn_datasets.eegdataset import load_eeg_data
+from src.nn_datasets.components.eegdataset import load_eeg_data
 from src.utils.plot_batches import plot_zoomed_batch
 from src.utils.custom import get_comp_score, val_to_dataframe
 

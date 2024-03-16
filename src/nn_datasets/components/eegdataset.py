@@ -1,8 +1,4 @@
 import random
-import warnings
-
-with warnings.catch_warnings():
-    warnings.filterwarnings("ignore", r"All-NaN (slice|axis) encountered")
 
 import numpy as np
 from pathlib import Path
