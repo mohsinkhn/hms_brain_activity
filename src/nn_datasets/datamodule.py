@@ -6,16 +6,14 @@ import numpy as np
 import polars as pl
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader, Dataset
-from torchvision.transforms import transforms
-
-from src.nn_datasets.eegdataset import HMSTrainEEGData, HMSValEEGData, HMSTrainEEGDataV2
-from src.convert_parquet_to_npy import convert_parquet_to_npy
 
 
-class EEGDataModule(LightningDataModule):
+class LitDataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: str,
+        train_dataset: Dataset,
+        val_dataset: Dataset,
         batch_size: int,
         num_workers: int,
         pin_memory: bool,
@@ -143,29 +141,21 @@ class EEGDataModule(LightningDataModule):
         :return: A tuple with the training and validation datasets.
         """
         df = pl.read_csv(Path(self.hparams.data_dir) / "train.csv")
-        # convert_parquet_to_npy(
-        #     df.with_columns(
-        #         (
-        #             pl.col("eeg_id").cast(pl.String)
-        #             + "_"
-        #             + pl.col("eeg_sub_id").cast(pl.String)
-        #         ).alias("eeg_id")
-        #     ),
-        #     Path(self.hparams.data_dir) / "train_eegs",
-        # )
         patient_ids = np.array(df["patient_id"].unique().to_list())
         kf = KFold(n_splits=self.hparams.num_folds, shuffle=True, random_state=786)
         train_idx, val_idx = list(kf.split(patient_ids))[self.hparams.fold_id]
         train_df = df.filter(pl.col("patient_id").is_in(patient_ids[train_idx]))
         val_df = df.filter(pl.col("patient_id").is_in(patient_ids[val_idx]))
 
-        train_dataset = HMSTrainEEGDataV2(
-            train_df,
-            Path(self.hparams.data_dir) / "train_eegs",
-            transforms=self.transforms,
+        train_dataset = self.hparams.train_dataset(
+            df=train_df,
+            data_dir=Path(self.hparams.data_dir) / "train_eegs",
+            transforms=self.hparams.transforms,
         )
-        val_dataset = HMSValEEGData(
-            val_df, Path(self.hparams.data_dir) / "train_eegs", transforms=None
+        val_dataset = self.hparams.val_dataset(
+            df=val_df,
+            data_dir=Path(self.hparams.data_dir) / "train_eegs",
+            transforms=None,
         )
 
         return train_dataset, val_dataset

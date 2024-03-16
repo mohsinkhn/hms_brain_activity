@@ -3,7 +3,7 @@ from typing import Any, Dict, Tuple
 
 import lightning as L
 import numpy as np
-import pandas as pd
+import polars as pl
 from timm.optim import AdamW, Nadam, MADGRAD
 import torch
 from torch import nn
@@ -13,16 +13,22 @@ import wandb
 from src.kaggle_metric import score
 from src.settings import TARGET_COLS
 from src.nn_datasets.eegdataset import load_eeg_data
-from src.utils.plot_batches import plot_batch
+from src.utils.plot_batches import plot_zoomed_batch
+from src.utils.custom import get_comp_score, val_to_dataframe
 
 
 class KLDivLossWithLogits(nn.KLDivLoss):
     def __init__(self):
-        super().__init__(reduction="batchmean")
+        super().__init__(reduction="none")
 
-    def forward(self, y, t):
+    def forward(self, y, t, sample_weight=None):
         y = nn.functional.log_softmax(y, dim=1)
         loss = super().forward(y, t)
+        if sample_weight is not None:
+            sample_weight = sample_weight / sample_weight.sum()
+            loss = (loss.sum(dim=1) * sample_weight).sum()
+        else:
+            loss = loss.sum() / y.size(0)
 
         return loss
 
@@ -49,98 +55,31 @@ class LitModel(L.LightningModule):
 
     def step(self, batch):
         x, y = batch["data"], batch["targets"]
-        # y = F.softmax(y, dim=1)
         logits = self.forward(x)
-        loss = self.criterion(logits, y)
-        # preds = torch.argmax(logits, dim=1)
-        return loss, F.softmax(logits, dim=1), y
+        loss = self.criterion(logits, y, sample_weight=batch.get("sample_weight", None))
+        return loss, logits, y
 
     def training_step(self, batch, batch_idx):
-        loss, preds, y = self.step(batch)
+        loss, _, _ = self.step(batch)
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, preds, y = self.step(batch)
-        self.validation_step_outputs.append(
-            {
-                "preds": preds,
-                "y": y,
-                "eeg_id": batch["eeg_id"],
-                "eeg_sub_id": batch["eeg_sub_id"],
-            }
-        )
+        self.post_process_validation_step(loss, preds, y, batch, batch_idx)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self) -> None:
-        preds = torch.cat([x["preds"] for x in self.validation_step_outputs], dim=0)
-        y = torch.cat([x["y"] for x in self.validation_step_outputs], dim=0)
-        eeg_ids = torch.cat([x["eeg_id"] for x in self.validation_step_outputs], dim=0)
-        eeg_sub_ids = torch.cat(
-            [x["eeg_sub_id"] for x in self.validation_step_outputs], dim=0
-        )
-        preds = pd.DataFrame(preds.cpu().numpy(), columns=TARGET_COLS)
-        preds["eeg_id"] = eeg_ids.cpu().numpy()
-        preds_agg = preds.groupby("eeg_id")[TARGET_COLS].sum().reset_index()
-        preds_agg[TARGET_COLS] = preds_agg[TARGET_COLS] / preds_agg[TARGET_COLS].sum(
-            axis=1
-        ).values.reshape(-1, 1)
-        y = pd.DataFrame(y.cpu().numpy(), columns=TARGET_COLS)
-        y["eeg_id"] = eeg_ids.cpu().numpy()
-        y_agg = y.groupby("eeg_id")[TARGET_COLS].sum().reset_index()
-        y_agg[TARGET_COLS] = y_agg[TARGET_COLS] / y_agg[TARGET_COLS].sum(
-            axis=1
-        ).values.reshape(-1, 1)
-        self.log(
-            "val/score",
-            score(y_agg, preds_agg, row_id_column_name="eeg_id"),
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-        )
+        data = {}
+        for batch_data in self.validation_step_outputs:
+            for k, v in batch_data.items():
+                if k not in data:
+                    data[k] = []
+                data[k].append(v.cpu())
+        for k, v in data.items():
+            data[k] = torch.cat(v, dim=0).numpy()
+        self.post_process_validation_epoch_end(data)
         self.validation_step_outputs = []
-
-        # Log averages of predictions
-        avg_preds = preds_agg[TARGET_COLS].mean().tolist()
-        avg_y = y_agg[TARGET_COLS].mean().tolist()
-        table = wandb.Table(data=[avg_preds, avg_y], columns=TARGET_COLS)
-        wandb.log({"means preds/y": table})
-
-        # Plot confusion matrix
-        preds_label = np.argmax(preds[TARGET_COLS].values, axis=1)
-        y_label = np.argmax(y[TARGET_COLS].values, axis=1)
-        cm = wandb.plot.confusion_matrix(
-            y_true=y_label, preds=preds_label, class_names=TARGET_COLS
-        )
-        wandb.log({"val/cm": cm})
-
-        # Plot some of the batches with errors
-        error_idx = np.where(preds_label != y_label)[0]
-        if len(error_idx) > 0:
-            error_idx = np.random.choice(error_idx, size=min(8, len(error_idx)))
-            batch_x = []
-            batch_y = y[TARGET_COLS].values[error_idx]
-            for idx in error_idx:
-                np_data = load_eeg_data(
-                    Path("./data/train_eegs"), eeg_ids[idx], eeg_sub_ids[idx]
-                )[8:-8]
-                batch_x.append(np_data)
-            batch_x = np.stack(batch_x)
-            Path("./val_errors").mkdir(exist_ok=True, parents=True)
-            plot_batch(
-                batch_x,
-                batch_y,
-                preds=preds[TARGET_COLS].values[error_idx],
-                save_path="./val_errors/{eeg_ids[idx]}_{eeg_sub_ids[idx]}.jpg",
-            )
-
-            wandb.log(
-                {
-                    f"val/errors": wandb.Image(
-                        "./val_errors/{eeg_ids[idx]}_{eeg_sub_ids[idx]}.jpg",
-                    )
-                }
-            )
 
     def predict_step(self, batch, batch_idx):
         _, preds, _ = self.step(batch)
@@ -203,36 +142,82 @@ class LitModel(L.LightningModule):
             }
         return {"optimizer": optimizer}
 
-    # def configure_optimizers(self):
-    #     if self.config.opti.name == "madgrad":
-    #         optimizer = MADGRAD(
-    #             self.parameters(),
-    #             lr=self.config.opti.lr,
-    #             weight_decay=self.config.opti.wd,
-    #         )
-    #     else:
-    #         optimizer = Nadam(
-    #             self.parameters(),
-    #             lr=self.config.opti.lr,
-    #             weight_decay=self.config.opti.wd,
-    #         )
+    def post_process_validation_step(
+        self, loss, preds, y, batch: Dict[str, Any], batch_idx: int
+    ) -> None:
+        preds = F.softmax(preds, dim=1)
+        self.validation_step_outputs.append(
+            {
+                "preds": preds,
+                "y": y,
+                "eeg_id": batch["eeg_id"],
+                "eeg_sub_id": batch["eeg_sub_id"],
+                "num_votes": batch["num_votes"],
+            }
+        )
 
-    #     if self.config.scheduler.name == "onecycle":
-    #         scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    #             optimizer,
-    #             total_steps=self.trainer.estimated_stepping_batches,
-    #             max_lr=self.config.opti.lr,
-    #             div_factor=self.config.scheduler.get("div_factor", 10),
-    #             pct_start=self.config.scheduler.get("pct_start", 0),
-    #             final_div_factor=self.config.scheduler.get("final_div_factor", 100),
-    #         )
-    #         interval = "step"
+    def post_process_validation_epoch_end(self, data) -> None:
+        data_df = val_to_dataframe(data)
+        val_score = get_comp_score(data_df)
+        self.log("val/score", val_score, on_step=False, on_epoch=True, prog_bar=False)
 
-    #     else:
-    #         scheduler = torch.optim.lr_scheduler.MultiStepLR(
-    #             optimizer,
-    #             gamma=self.config.scheduler.gamma,
-    #             milestones=self.config.scheduler.steps,
-    #         )
-    #         interval = "epoch"
-    #     return [optimizer], [{"scheduler": scheduler, "interval": interval}]
+        val_score2 = get_comp_score(data_df.filter(pl.col("num_votes") > 7))
+        self.log("val/score2", val_score2, on_step=False, on_epoch=True, prog_bar=False)
+
+        # table of means
+        means = data_df.select(
+            *[pl.mean(f"{col}_pred").alias(f"{col}_pred") for col in TARGET_COLS],
+            *[pl.mean(f"{col}_true").alias(f"{col}_true") for col in TARGET_COLS],
+        ).to_pandas()
+        wandb.log({"means preds/y": wandb.Table(dataframe=means)})
+
+        # Plot confusion matrix
+        preds = data_df.select(
+            *[pl.col(f"{col}_pred") for col in TARGET_COLS]
+        ).to_numpy()
+        y = data_df.select(*[pl.col(f"{col}_true") for col in TARGET_COLS]).to_numpy()
+        preds_label = np.argmax(preds, axis=1)
+        y_label = np.argmax(y, axis=1)
+        cm = wandb.plot.confusion_matrix(
+            y_true=y_label, preds=preds_label, class_names=TARGET_COLS
+        )
+        wandb.log({"val/cm": cm})
+
+        # error plots
+        data_df = (
+            data_df.with_columns(
+                pl.reduce(
+                    lambda x, y: x + y,
+                    [
+                        (pl.col(f"{col}_true") - pl.col(f"{col}_pred")).abs()
+                        for col in TARGET_COLS
+                    ],
+                ).alias("error_sum")
+            )
+            .sort("error_sum", descending=True)
+            .head(50)
+            .sample(8)
+            .to_pandas()
+        )
+        batch_x, batch_y, preds = [], [], []
+        for i, row in data_df.iterrows():
+            np_data = load_eeg_data(
+                Path("./data/train_eegs"),
+                int(row["eeg_id"]),
+                int(row["eeg_sub_id"]),
+            )
+            batch_x.append(np_data)
+            batch_y.append([row[f"{col}_true"] for col in TARGET_COLS])
+            preds.append([row[f"{col}_pred"] for col in TARGET_COLS])
+        batch_x = np.stack(batch_x)
+        batch_y = np.array(batch_y)
+        preds = np.array(preds)
+        plot_zoomed_batch(
+            batch_x,
+            batch_y,
+            preds=preds,
+            start=4000,
+            n=2000,
+            save_path=f"./val_errors/tmp.jpg",
+        )
+        wandb.log({"val/errors": wandb.Image(f"./val_errors/tmp.jpg")})

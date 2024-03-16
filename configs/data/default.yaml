@@ -1,5 +1,11 @@
-_target_: src.nn_datasets.eeg_datamodule.EEGDataModule
+_target_: src.nn_datasets.datamodule.LitDataModule
 data_dir: ${paths.data_dir}
+train_dataset:
+  _target_: src.nn_datasets.components.eegdataset.HMSTrain
+  partial: true
+val_dataset:
+  _target_: src.nn_datasets.components.eegdataset.HMSVal
+  partial: true
 batch_size: 128 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_folds: 5
 fold_id: 0

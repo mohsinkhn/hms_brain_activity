@@ -7,7 +7,34 @@ class SideSwap(object):
 
     def __call__(self, sample: np.ndarray) -> np.ndarray:
         if np.random.rand() < self.p:
-            return sample[:, [8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 16]]
+            return sample[
+                :,
+                [
+                    10,
+                    11,
+                    12,
+                    13,
+                    14,
+                    15,
+                    16,
+                    17,
+                    8,
+                    9,
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    18,
+                    19,
+                    20,
+                    21,
+                    22,
+                ],
+            ]
         return sample
 
 
@@ -85,4 +112,16 @@ class AmplitudeChange(object):
         if np.random.rand() < self.p:
             zoom = 1 + (np.random.rand() - 0.5) * self.max_zoom
             return sample * zoom
+        return sample
+
+
+class GaussianNoise(object):
+    def __init__(self, p: float = 0.5, max_noise: int = 0.1):
+        self.p = p
+        self.max_noise = max_noise
+
+    def __call__(self, sample: np.ndarray) -> np.ndarray:
+        if np.random.rand() < self.p:
+            noise = np.random.randn(*sample.shape) * self.max_noise
+            return sample + noise * sample
         return sample

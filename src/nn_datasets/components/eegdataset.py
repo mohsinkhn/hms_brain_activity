@@ -34,15 +34,12 @@ def get_sample_weights(df):
             pl.len().over("unq_row_id").alias("eeg_sample_count"),
         )
         .with_columns(
-            (1 / (pl.col("eeg_sample_count") / pl.col("patient_sample_count"))).alias(
-                "sample_weight"
-            ),
+            (pl.sum_horizontal(TARGET_COLS)).alias("total_votes"),
         )
         .with_columns(
-            (
-                pl.col("sample_weight")
-                / pl.col("sample_weight").sum().over("patient_id")
-            ).alias("sample_weight")
+            (pl.when(pl.col("total_votes") > 5).then(1).otherwise(0.5)).alias(
+                "sample_weight"
+            )
         )
     )
 
@@ -56,41 +53,14 @@ def norm_target_cols(df):
     ).with_columns(pl.Series("num_votes", target_sums.flatten()))
 
 
-class HMSTrainEEGData(Dataset):
-    def __init__(self, df, data_dir):
-        self.patient_ids = df["patient_id"].unique().to_list()
-        self.df = df
-        self.data_dir = data_dir
-        self.df = get_sample_weights(self.df)
-        self.df = norm_target_cols(self.df)
-
-    def __len__(self):
-        return len(self.patient_ids)
-
-    def __getitem__(self, idx):
-        patient_id = self.patient_ids[idx]
-        patient_df = self.df.filter(pl.col("patient_id") == patient_id)
-        idx = random.choices(
-            range(len(patient_df)), weights=patient_df["sample_weight"].to_numpy()
-        )[0]
-        patient_df = patient_df[idx].to_pandas()
-        eeg_id = patient_df["eeg_id"].iloc[0]
-        # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
-        eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
-        data = load_eeg_data(self.data_dir, eeg_id, eeg_sub_id)
-        targets = patient_df[TARGET_COLS].values.flatten()
-        # targets = targets / targets.sum()
-        return data.astype(np.float32), targets.astype(np.float32)
-
-
-class HMSTrainEEGDataV2(Dataset):
+class HMSTrain(Dataset):
     def __init__(self, df, data_dir, transforms=None):
         self.df = df  # .unique(subset=["eeg_id", *TARGET_COLS])
         self.df = get_sample_weights(self.df)
         self.unq_ids = self.df["eeg_id"].unique().to_list()
         self.data_dir = data_dir
         self.df = norm_target_cols(self.df)
-        self.transforms = None
+        self.transforms = transforms
 
     def __len__(self):
         return len(self.unq_ids)
@@ -111,15 +81,17 @@ class HMSTrainEEGDataV2(Dataset):
                 data = tfm(data)
         targets = patient_df[TARGET_COLS].values.flatten()
         # targets = targets / targets.sum()
+        sample_weight = patient_df["sample_weight"].iloc[0]
         return {
             "data": data.astype(np.float32),
             "targets": targets.astype(np.float32),
+            "sample_weight": sample_weight.astype(np.float32),
             "eeg_id": eeg_id.astype(np.int32),
             "eeg_sub_id": eeg_sub_id.astype(np.int32),
         }
 
 
-class HMSValEEGData(Dataset):
+class HMSVal(Dataset):
     def __init__(self, df, data_dir, transforms=None):
         self.df = df
         self.data_dir = data_dir
@@ -142,6 +114,7 @@ class HMSValEEGData(Dataset):
             "targets": targets.astype(np.float32),
             "eeg_id": eeg_id.astype(np.int64),
             "eeg_sub_id": eeg_sub_id.astype(np.int64),
+            "num_votes": patient_df["num_votes"].iloc[0].astype(np.float32),
         }
 
 
@@ -161,21 +134,11 @@ def load_eeg_data(data_dir, eeg_id, eeg_sub_id):
     data = np.load(npy_path)
     data = fix_nulls(data)
     data = butter_lowpass_filter(data)
-    out = np.zeros((data.shape[0], 17), dtype=np.float32)
+    out = np.zeros((data.shape[0], 23), dtype=np.float32)
     for i, (j, k) in enumerate(EEG_GROUP_IDX):
         out[:, i] = data[:, j] - data[:, k]
-    out[:, 16] = data[:, -1]
+    out[:, -1] = data[:, -1]
     out = np.clip(out, -1024, 1024)
     # out = np.log1p(np.abs(out)) * np.sign(out) / 3
-    out = out / 100
+    out = out / 300
     return out[8:-8, :]
-    # df = pl.read_parquet(pq_path)
-    # offset = int(offset * SAMPLE_RATE)
-    # data = (
-    #     df[offset : offset + SAMPLE_RATE * EEG_DURATION : 2, :19]
-    #     .fill_null(0)
-    #     .to_numpy()
-    # )
-    # data = np.clip(data, -2048, 2048)
-    # data = np.log1p(np.abs(data)) * np.sign(data) / 6
-    # return data

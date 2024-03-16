@@ -16,7 +16,7 @@ class ConvBnSilu(nn.Module):
             padding=padding,
             bias=False,
         )
-        self.bn = nn.BatchNorm1d(num_features=out_channels)
+        self.bn = nn.BatchNorm1d(out_channels)
         self.silu = nn.SiLU(inplace=True)
 
     def forward(self, x):
@@ -29,20 +29,20 @@ class ConvBnSilu(nn.Module):
 class InceptionBlock(nn.Module):
     def __init__(self, in_channels, out_channels, k, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.c1 = ConvBnSilu(in_channels, out_channels, k // 4 + 1, 1)
-        self.c2 = ConvBnSilu(in_channels, out_channels, k // 2 + 1, 1)
-        self.c3 = ConvBnSilu(in_channels, out_channels, k, 1)
-        self.c4 = ConvBnSilu(in_channels, out_channels, k * 2 + 1, 1)
-        self.c5 = ConvBnSilu(in_channels, out_channels, k * 4 + 1, 1)
-        self.c6 = ConvBnSilu(out_channels * 5 + in_channels, out_channels, 1)
+        self.c1 = ConvBnSilu(in_channels, out_channels, k, 1)
+        self.c2 = ConvBnSilu(in_channels, out_channels, k + 2, 1)
+        self.c3 = ConvBnSilu(in_channels, out_channels, k + 4, 1)
+        self.c4 = ConvBnSilu(in_channels, out_channels, k + 6, 1)
+        # self.c5 = ConvBnSilu(in_channels, out_channels, k + 8, 1)
+        self.c6 = ConvBnSilu(out_channels * 4 + in_channels, out_channels, 1)
 
     def forward(self, x):
         c1 = self.c1(x)
         c2 = self.c2(x)
         c3 = self.c3(x)
         c4 = self.c4(x)
-        c5 = self.c5(x)
-        x = torch.cat([c1, c2, c3, c4, c5, x], dim=1)
+        # c5 = self.c5(x)
+        x = torch.cat([c1, c2, c3, c4, x], dim=1)
         x = self.c6(x)
         return x
 
@@ -152,9 +152,8 @@ class InceptionConv1DModel(nn.Module):
         out_channels,
         features,
         kernel_sizes,
-        conv2d_features=32,
         model_name="efficientnet_b1",
-        rnn_dim=128,
+        in_2d_chs=32,
         dropout=0.1,
     ):
         super(InceptionConv1DModel, self).__init__()
@@ -171,16 +170,18 @@ class InceptionConv1DModel(nn.Module):
         self.in_channels = in_channels
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.max_pool = nn.AdaptiveMaxPool2d((1, 1))
-        self.classifier = nn.Linear(1280 * 2, out_channels)
+        self.classifier = nn.Linear(self.conv2d.num_features * 2, out_channels)
 
     def forward(self, x):
+        # x = self.fc1(x)
+        # x = self.relu(x)
         xc = []
-        x1 = x[:, :, : self.in_channels]
-        for i in range(x1.shape[2]):
-            xc.append(self.conv1d_encoder(x1[:, :, i].unsqueeze(1)))
-        x = torch.stack(xc, dim=1)
+        b, l, c = x.shape
+        x = x.permute(0, 2, 1).contiguous()
+        x = x.view(b * c, 1, l)
+        x = self.conv1d_encoder(x)
+        x = x.view(b, c, x.shape[1], x.shape[2])
         x = self.conv2d(x)
-        # x = self.avg_pool(x)
         x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
         x = x.view(x.size(0), -1)
         x = self.classifier(x)
