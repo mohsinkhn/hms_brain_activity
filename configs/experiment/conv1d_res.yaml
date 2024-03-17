@@ -60,7 +60,7 @@ model:
       - 3 
     model_name: "efficientnet_b0"
     use_stem_rnn: false
-    use_feature_rnn: true
+    use_feature_rnn: false
   differential_lr: false
   compile: false
 
@@ -74,8 +74,8 @@ data:
   fold_id: 1
   num_workers: 0
   low_f: 0.5
-  high_f: 20
-  order: 5
+  high_f: 50
+  order: 1
   transforms:
     - _target_: src.nn_augs.eeg_transforms.SideSwap
       p: 0.3

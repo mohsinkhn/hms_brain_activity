@@ -10,16 +10,17 @@ from src.settings import TARGET_COLS, SAMPLE_RATE, EEG_DURATION, EEG_GROUP_IDX  
 
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
-    return butter(order, [lowcut, highcut], fs=fs, btype="band")
+    return butter(order, [lowcut, highcut], btype="band")
 
 
 def butter_bandpass_filter(data, lowcut, highcut, fs=200, order=5):
-    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
-    y = lfilter(b, a, data)
+    nyquist = 0.5 * fs
+    b, a = butter_bandpass(lowcut / nyquist, highcut / nyquist, fs, order=order)
+    y = lfilter(b, a, data, axis=0)
     return y
 
 
-def butter_lowpass_filter(data, cutoff_freq=20, sampling_rate=200, order=4):
+def butter_lowpass_filter(data, cutoff_freq=20, sampling_rate=200, order=1):
     nyquist = 0.5 * sampling_rate
     normal_cutoff = cutoff_freq / nyquist
     b, a = butter(order, normal_cutoff, btype="low", analog=False)
