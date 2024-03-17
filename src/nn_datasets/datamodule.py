@@ -22,6 +22,9 @@ class LitDataModule(LightningDataModule):
         num_folds: int = 5,
         fold_id: int = 0,
         transforms: Any = None,
+        low_f=0.1,
+        high_f=20,
+        order=4,
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -94,7 +97,7 @@ class LitDataModule(LightningDataModule):
         """
         return DataLoader(
             dataset=self.data_val,
-            batch_size=self.batch_size_per_device,
+            batch_size=self.batch_size_per_device * 2,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
@@ -153,11 +156,17 @@ class LitDataModule(LightningDataModule):
             df=train_df,
             data_dir=Path(self.hparams.data_dir) / "train_eegs",
             transforms=self.hparams.transforms,
+            low_f=self.hparams.low_f,
+            high_f=self.hparams.high_f,
+            order=self.hparams.order,
         )
         val_dataset = eval(f"components.{self.hparams.val_dataset}")(
             df=val_df,
             data_dir=Path(self.hparams.data_dir) / "train_eegs",
             transforms=None,
+            low_f=self.hparams.low_f,
+            high_f=self.hparams.high_f,
+            order=self.hparams.order,
         )
 
         return train_dataset, val_dataset

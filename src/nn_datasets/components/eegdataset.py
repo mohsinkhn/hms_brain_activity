@@ -9,6 +9,16 @@ from torch.utils.data import Dataset
 from src.settings import TARGET_COLS, SAMPLE_RATE, EEG_DURATION, EEG_GROUP_IDX  # noqa
 
 
+def butter_bandpass(lowcut, highcut, fs, order=5):
+    return butter(order, [lowcut, highcut], fs=fs, btype="band")
+
+
+def butter_bandpass_filter(data, lowcut, highcut, fs=200, order=5):
+    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
+
+
 def butter_lowpass_filter(data, cutoff_freq=20, sampling_rate=200, order=4):
     nyquist = 0.5 * sampling_rate
     normal_cutoff = cutoff_freq / nyquist
@@ -50,12 +60,15 @@ def norm_target_cols(df):
 
 
 class HMSTrain(Dataset):
-    def __init__(self, df, data_dir, transforms=None):
+    def __init__(self, df, data_dir, low_f=0.5, high_f=50, order=5, transforms=None):
         self.df = df  # .unique(subset=["eeg_id", *TARGET_COLS])
         self.df = get_sample_weights(self.df)
         self.unq_ids = self.df["eeg_id"].unique().to_list()
         self.data_dir = data_dir
         self.df = norm_target_cols(self.df)
+        self.low_f = low_f
+        self.high_f = high_f
+        self.order = order
         self.transforms = transforms
 
     def __len__(self):
@@ -71,7 +84,9 @@ class HMSTrain(Dataset):
         eeg_id = patient_df["eeg_id"].iloc[0]
         # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
         eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
-        data = load_eeg_data(self.data_dir, eeg_id, eeg_sub_id)
+        data = load_eeg_data(
+            self.data_dir, eeg_id, eeg_sub_id, self.low_f, self.high_f, self.order
+        )
         if self.transforms is not None:
             for tfm in self.transforms:
                 data = tfm(data)
@@ -88,9 +103,12 @@ class HMSTrain(Dataset):
 
 
 class HMSVal(Dataset):
-    def __init__(self, df, data_dir, transforms=None):
+    def __init__(self, df, data_dir, low_f=0.5, high_f=50, order=5, transforms=None):
         self.df = df
         self.data_dir = data_dir
+        self.low_f = low_f
+        self.high_f = high_f
+        self.order = order
         self.df = norm_target_cols(self.df)
 
     def __len__(self):
@@ -101,7 +119,9 @@ class HMSVal(Dataset):
         eeg_id = patient_df["eeg_id"].iloc[0]
         # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
         eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
-        data = load_eeg_data(self.data_dir, eeg_id, eeg_sub_id)
+        data = load_eeg_data(
+            self.data_dir, eeg_id, eeg_sub_id, self.low_f, self.high_f, self.order
+        )
 
         targets = patient_df[TARGET_COLS].values.flatten()
         # targets = targets / targets.sum()
@@ -125,11 +145,13 @@ def fix_nulls(data):
     return data
 
 
-def load_eeg_data(data_dir, eeg_id, eeg_sub_id):
+def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=50, order=5):
     npy_path = data_dir / f"{eeg_id}_{eeg_sub_id}.npy"
     data = np.load(npy_path)
     data = fix_nulls(data)
-    data = butter_lowpass_filter(data)
+    data = butter_bandpass_filter(
+        data, lowcut=low_f, highcut=high_f, fs=SAMPLE_RATE, order=order
+    )
     out = np.zeros((data.shape[0], 23), dtype=np.float32)
     for i, (j, k) in enumerate(EEG_GROUP_IDX):
         out[:, i] = data[:, j] - data[:, k]

@@ -153,7 +153,8 @@ class InceptionConv1DModel(nn.Module):
         features,
         kernel_sizes,
         model_name="efficientnet_b1",
-        in_2d_chs=32,
+        use_stem_rnn=False,
+        use_feature_rnn=False,
         dropout=0.1,
     ):
         super(InceptionConv1DModel, self).__init__()
@@ -168,6 +169,12 @@ class InceptionConv1DModel(nn.Module):
             global_pool="",
         )
         self.in_channels = in_channels
+        self.use_stem_rnn = use_stem_rnn
+        self.stem_rnn = nn.GRU(features[-1], features[-1], 1, batch_first=True)
+        self.use_feature_rnn = use_feature_rnn
+        self.feature_rnn = nn.RNN(
+            self.conv2d.num_features, self.conv2d.num_features, 1, batch_first=True
+        )
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.max_pool = nn.AdaptiveMaxPool2d((1, 1))
         self.classifier = nn.Linear(self.conv2d.num_features * 2, out_channels)
@@ -180,8 +187,18 @@ class InceptionConv1DModel(nn.Module):
         x = x.permute(0, 2, 1).contiguous()
         x = x.view(b * c, 1, l)
         x = self.conv1d_encoder(x)
+        if self.use_stem_rnn:
+            x = x.permute(0, 2, 1).contiguous()
+            x, _ = self.stem_rnn(x)
+            x = x.permute(0, 2, 1).contiguous()
         x = x.view(b, c, x.shape[1], x.shape[2])
         x = self.conv2d(x)
+        if self.use_feature_rnn:
+            x = x.mean(dim=2)
+            x = x.permute(0, 2, 1).contiguous()
+            x, _ = self.feature_rnn(x)
+            x = x.permute(0, 2, 1).contiguous()
+            x = x.unsqueeze(2)
         x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
         x = x.view(x.size(0), -1)
         x = self.classifier(x)

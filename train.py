@@ -5,8 +5,8 @@ import lightning as L
 import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
-
+from omegaconf import DictConfig, OmegaConf
+import wandb
 
 from src.utils import (
     RankedLogger,
@@ -91,7 +91,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
 
 @hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")
-def main(cfg: DictConfig) -> Optional[float]:
+def run_experiment(cfg: DictConfig) -> Optional[float]:
     """Main entry point for training.
 
     :param cfg: DictConfig configuration composed by Hydra.
@@ -99,6 +99,8 @@ def main(cfg: DictConfig) -> Optional[float]:
     """
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
+    config = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+
     extras(cfg)
 
     # train the model
@@ -114,4 +116,4 @@ def main(cfg: DictConfig) -> Optional[float]:
 
 
 if __name__ == "__main__":
-    main()
+    run_experiment()
