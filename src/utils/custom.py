@@ -17,7 +17,7 @@ def val_to_dataframe(data):
 
 def test_to_dataframe(data):
     for i, col in enumerate(TARGET_COLS):
-        data[f"{col}_vote"] = data["preds"][:, i]
+        data[f"{col}"] = data["preds"][:, i]
     del data["preds"]
     return pl.DataFrame(data)
 
