@@ -15,6 +15,13 @@ def val_to_dataframe(data):
     return pl.DataFrame(data)
 
 
+def test_to_dataframe(data):
+    for i, col in enumerate(TARGET_COLS):
+        data[f"{col}_vote"] = data["preds"][:, i]
+    del data["preds"]
+    return pl.DataFrame(data)
+
+
 def get_comp_score(data: pl.DataFrame, group_col="eeg_id"):
     data = (
         data.group_by(group_col)
