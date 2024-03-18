@@ -44,6 +44,7 @@ class LitModel(L.LightningModule):
         scheduler_interval: str,
         differential_lr: bool,
         compile: bool,
+        test_output_dir: str = "./data",
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -256,4 +257,4 @@ class LitModel(L.LightningModule):
 
     def post_process_test_epoch_end(self, data) -> None:
         data_df = test_to_dataframe(data)
-        data_df.write_csv("submission.csv")
+        data_df.write_csv(Path(self.hparams.test_output_dir) / "submission.csv")
