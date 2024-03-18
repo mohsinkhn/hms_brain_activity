@@ -153,6 +153,7 @@ class InceptionConv1DModel(nn.Module):
         features,
         kernel_sizes,
         model_name="efficientnet_b1",
+        pretrained=True,
         use_stem_rnn=False,
         use_feature_rnn=False,
         dropout=0.1,
@@ -163,7 +164,7 @@ class InceptionConv1DModel(nn.Module):
         )
         self.conv2d = timm.create_model(
             model_name,
-            pretrained=True,
+            pretrained=pretrained,
             num_classes=0,
             in_chans=in_channels,
             global_pool="",
