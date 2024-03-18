@@ -14,7 +14,7 @@ from src.kaggle_metric import score
 from src.settings import TARGET_COLS
 from src.nn_datasets.components.eegdataset import load_eeg_data
 from src.utils.plot_batches import plot_zoomed_batch
-from src.utils.custom import get_comp_score, val_to_dataframe
+from src.utils.custom import get_comp_score, val_to_dataframe, test_to_dataframe
 
 
 class KLDivLossWithLogits(nn.KLDivLoss):
@@ -49,6 +49,7 @@ class LitModel(L.LightningModule):
         self.save_hyperparameters(logger=False)
         self.model = net
         self.validation_step_outputs = []
+        self.test_step_outputs = []
         self.criterion = KLDivLossWithLogits()
 
     def forward(self, x):
@@ -70,6 +71,11 @@ class LitModel(L.LightningModule):
         self.post_process_validation_step(loss, preds, y, batch, batch_idx)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
+    def test_step(self, batch, batch_idx):
+        x = batch["data"]
+        logits = self.forward(x)
+        self.post_process_test_step(logits, batch, batch_idx)
+
     def on_validation_epoch_end(self) -> None:
         data = {}
         for batch_data in self.validation_step_outputs:
@@ -81,6 +87,18 @@ class LitModel(L.LightningModule):
             data[k] = torch.cat(v, dim=0).numpy()
         self.post_process_validation_epoch_end(data)
         self.validation_step_outputs = []
+
+    def on_test_epoch_end(self) -> None:
+        data = {}
+        for batch_data in self.test_step_outputs:
+            for k, v in batch_data.items():
+                if k not in data:
+                    data[k] = []
+                data[k].append(v.cpu())
+        for k, v in data.items():
+            data[k] = torch.cat(v, dim=0).numpy()
+        self.post_process_test_epoch_end(data)
+        self.test_step_outputs = []
 
     def predict_step(self, batch, batch_idx):
         _, preds, _ = self.step(batch)
@@ -159,6 +177,17 @@ class LitModel(L.LightningModule):
             }
         )
 
+    def post_process_test_step(
+        self, preds, batch: Dict[str, Any], batch_idx: int
+    ) -> None:
+        preds = F.softmax(preds, dim=1)
+        self.test_step_outputs.append(
+            {
+                "preds": preds,
+                "eeg_id": batch["eeg_id"],
+            }
+        )
+
     def post_process_validation_epoch_end(self, data) -> None:
         data_df = val_to_dataframe(data)
         val_score = get_comp_score(data_df)
@@ -224,3 +253,7 @@ class LitModel(L.LightningModule):
             save_path=f"./val_errors/tmp.jpg",
         )
         wandb.log({"val/errors": wandb.Image(f"./val_errors/tmp.jpg")})
+
+    def post_process_test_epoch_end(self, data) -> None:
+        data_df = test_to_dataframe(data)
+        data_df.write_csv("submission.csv")

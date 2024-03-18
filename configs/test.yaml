@@ -1,0 +1,48 @@
+# @package _global_
+
+# specify here default configuration
+# order of defaults determines the order in which configs override each other
+defaults:
+  - _self_
+  - data: default
+  - model: default
+  - callbacks: default
+  - logger: wandb # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - trainer: default
+  - paths: default
+  - extras: default
+  - hydra: test
+
+  # experiment configs allow for version control of specific hyperparameters
+  # e.g. best hyperparameters for given model and datamodule
+  - experiment: conv1d_res
+
+  # config for hyperparameter optimization
+  - hparams_search: null
+
+  # optional local config for machine/user specific settings
+  # it's optional since it doesn't need to exist and is excluded from version control
+  - optional local: default
+
+  # debugging config (enable through command line, e.g. `python train.py debug=default)
+  - debug: null
+
+# task name, determines output directory path
+task_name: "test"
+
+version: "v0"
+
+# tags to help you identify your experiments
+# you can overwrite this in experiment configs
+# overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
+
+# set False to skip model training
+train: False
+
+# evaluate on test set, using best model weights achieved during training
+# lightning chooses best weights based on the metric specified in checkpoint callback
+test: True
+
+# simply provide checkpoint path to resume training
+ckpt_path: "logs/train/multiruns/2024-03-17_17-40-58/8/checkpoints/last.ckpt"
+

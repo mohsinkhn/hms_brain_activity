@@ -135,6 +135,31 @@ class HMSVal(Dataset):
         }
 
 
+class HMSTest(Dataset):
+    def __init__(self, df, data_dir, low_f=0.5, high_f=50, order=5, transforms=None):
+        self.df = df
+        self.data_dir = data_dir
+        self.low_f = low_f
+        self.high_f = high_f
+        self.order = order
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        patient_df = self.df[idx].to_pandas()
+        eeg_id = patient_df["eeg_id"].iloc[0]
+        eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
+        data = load_eeg_data(
+            self.data_dir, eeg_id, eeg_sub_id, self.low_f, self.high_f, self.order
+        )
+
+        return {
+            "data": data.astype(np.float32),
+            "eeg_id": eeg_id.astype(np.int64),
+        }
+
+
 def fix_nulls(data):
     for i in range(data.shape[1]):
         if np.all(np.isnan(data[:, i])):

@@ -22,6 +22,8 @@ class LitDataModule(LightningDataModule):
         num_folds: int = 5,
         fold_id: int = 0,
         transforms: Any = None,
+        test_dataset: Optional[str] = None,
+        test_eegs_dir: Optional[str] = None,
         low_f=0.1,
         high_f=20,
         order=4,
@@ -176,4 +178,14 @@ class LitDataModule(LightningDataModule):
 
         :return: The test dataset.
         """
-        pass
+        test_df = pl.read_csv(Path(self.hparams.data_dir) / "test.csv")
+        test_df = test_df.with_columns(pl.lit(0).alias("eeg_sub_id"))
+        test_dataset = eval(f"components.{self.hparams.test_dataset}")(
+            df=test_df,
+            data_dir=Path(self.hparams.test_eegs_dir) / "test_eegs",
+            transforms=None,
+            low_f=self.hparams.low_f,
+            high_f=self.hparams.high_f,
+            order=self.hparams.order,
+        )
+        return test_dataset

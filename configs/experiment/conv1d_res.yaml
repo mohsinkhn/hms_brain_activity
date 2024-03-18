@@ -69,13 +69,15 @@ data:
   data_dir: ${paths.data_dir}
   train_dataset: eegdataset.HMSTrain
   val_dataset: eegdataset.HMSVal
+  test_dataset: eegdataset.HMSTest
+  test_eegs_dir: "./data"
   batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
   num_folds: 5
   fold_id: 1
   num_workers: 0
-  low_f: 0.5
+  low_f: 0.05
   high_f: 50
-  order: 1
+  order: 3
   transforms:
     - _target_: src.nn_augs.eeg_transforms.SideSwap
       p: 0.3
