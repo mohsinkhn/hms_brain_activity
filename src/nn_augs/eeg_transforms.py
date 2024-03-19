@@ -10,16 +10,14 @@ class SideSwap(object):
             return sample[
                 :,
                 [
+                    8,
+                    9,
                     10,
                     11,
                     12,
                     13,
                     14,
                     15,
-                    16,
-                    17,
-                    8,
-                    9,
                     0,
                     1,
                     2,
@@ -28,11 +26,6 @@ class SideSwap(object):
                     5,
                     6,
                     7,
-                    18,
-                    19,
-                    20,
-                    21,
-                    22,
                 ],
             ]
         return sample

@@ -75,6 +75,22 @@ class Conv1DEncoder(nn.Module):
         return self.blocks(x)
 
 
+class InceptionResBlock(nn.Module):
+    def __init__(
+        self, in_channels, feat, kernel_size, dropout, *args, **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.drop = nn.Dropout1d(dropout)
+        self.inception = InceptionBlock(in_channels, feat, kernel_size)
+        self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
+
+    def forward(self, x):
+        x = self.drop(x)
+        x = self.inception(x)
+        x = self.pool(x)
+        return x
+
+
 class Conv1DInceptionEncoder(nn.Module):
     def __init__(
         self,
@@ -87,13 +103,7 @@ class Conv1DInceptionEncoder(nn.Module):
         blocks = []
         in_channels = 1
         for feat, kernel_size in zip(features, kernel_sizes):
-            blocks.append(
-                nn.Sequential(
-                    nn.Dropout1d(dropout),
-                    InceptionBlock(in_channels, feat, kernel_size),
-                    nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
-                )
-            )
+            blocks.append(InceptionResBlock(in_channels, feat, kernel_size, dropout))
             in_channels = feat
         self.blocks = nn.Sequential(*blocks)
 

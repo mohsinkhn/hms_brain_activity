@@ -3,19 +3,24 @@ import random
 import numpy as np
 from pathlib import Path
 import polars as pl
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, lfilter, iirnotch
 from torch.utils.data import Dataset
 
 from src.settings import TARGET_COLS, SAMPLE_RATE, EEG_DURATION, EEG_GROUP_IDX  # noqa
 
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
-    return butter(order, [lowcut, highcut], btype="band")
+    return butter(order, [lowcut, highcut], fs=fs, btype="band")
+
+
+def notch_filter(data, fs, freq):
+    b, a = iirnotch(freq, 30, fs)
+    y = lfilter(b, a, data, axis=0)
+    return y
 
 
 def butter_bandpass_filter(data, lowcut, highcut, fs=200, order=5):
-    nyquist = 0.5 * fs
-    b, a = butter_bandpass(lowcut / nyquist, highcut / nyquist, fs, order=order)
+    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
     y = lfilter(b, a, data, axis=0)
     return y
 
@@ -24,6 +29,14 @@ def butter_lowpass_filter(data, cutoff_freq=20, sampling_rate=200, order=1):
     nyquist = 0.5 * sampling_rate
     normal_cutoff = cutoff_freq / nyquist
     b, a = butter(order, normal_cutoff, btype="low", analog=False)
+    filtered_data = lfilter(b, a, data, axis=0)
+    return filtered_data
+
+
+def butter_highpass_filter(data, cutoff_freq=0.1, sampling_rate=200, order=1):
+    nyquist = 0.5 * sampling_rate
+    normal_cutoff = cutoff_freq / nyquist
+    b, a = butter(order, normal_cutoff, btype="high", analog=False)
     filtered_data = lfilter(b, a, data, axis=0)
     return filtered_data
 
@@ -171,18 +184,25 @@ def fix_nulls(data):
     return data
 
 
-def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=50, order=5):
+def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=40, order=5):
     npy_path = data_dir / f"{eeg_id}_{eeg_sub_id}.npy"
     data = np.load(npy_path)
     data = fix_nulls(data)
-    data = butter_bandpass_filter(
-        data, lowcut=low_f, highcut=high_f, fs=SAMPLE_RATE, order=order
-    )
-    out = np.zeros((data.shape[0], 23), dtype=np.float32)
+    # data = butter_bandpass_filter(
+    #     data, lowcut=low_f, highcut=high_f, fs=SAMPLE_RATE, order=order
+    # )
+    out = np.zeros((data.shape[0], 16), dtype=np.float32)
     for i, (j, k) in enumerate(EEG_GROUP_IDX):
         out[:, i] = data[:, j] - data[:, k]
-    out[:, -1] = data[:, -1]
+    out = out.astype(np.float64)
+    out = notch_filter(out, SAMPLE_RATE, 60)
+    out = butter_lowpass_filter(
+        out, cutoff_freq=high_f, sampling_rate=SAMPLE_RATE, order=order
+    )
+    out = butter_highpass_filter(
+        out, cutoff_freq=low_f, sampling_rate=SAMPLE_RATE, order=order
+    )
     out = np.clip(out, -1024, 1024)
     # out = np.log1p(np.abs(out)) * np.sign(out) / 3
     out = out / 300
-    return out[8:-8, :]
+    return out[8:-8, :].astype(np.float32)

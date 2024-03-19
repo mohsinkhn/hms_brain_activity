@@ -18,7 +18,7 @@ seed: 12345786
 
 trainer:
   min_epochs: 10
-  max_epochs: 14
+  max_epochs: 15
   gradient_clip_val: 0.5
   precision: 16
 
@@ -42,25 +42,24 @@ model:
   scheduler_interval: "epoch"
   net:
     _target_: src.nn_models.conv1dmodels.InceptionConv1DModel
-    in_channels: 23
+    in_channels: 16
     out_channels: 6
     features:
       - 8
       - 16
-      - 16
       - 32
       - 64
-      - 64
+      - 128
     kernel_sizes:
       - 3
       - 3
       - 3
-      - 3
-      - 3
       - 3 
-    model_name: "efficientnet_b0"
+      - 3
+    model_name: "resnest50d.in1k"
     use_stem_rnn: false
     use_feature_rnn: false
+    dropout: 0.1
   differential_lr: false
   compile: false
 
@@ -75,22 +74,22 @@ data:
   num_folds: 5
   fold_id: 1
   num_workers: 0
-  low_f: 0.05
-  high_f: 50
-  order: 3
+  low_f: 0.2
+  high_f: 40
+  order: 4
   transforms:
     - _target_: src.nn_augs.eeg_transforms.SideSwap
       p: 0.3
     - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
-      p: 0.2
+      p: 0.3
     - _target_: src.nn_augs.eeg_transforms.SignFlip
       p: 0.3
     - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
-      p: 0.0
-      max_zoom: 0.2
+      p: 0.1
+      max_zoom: 0.1
     - _target_: src.nn_augs.eeg_transforms.GaussianNoise
       p: 0.3
-      max_noise: 0.2
+      max_noise: 0.1
 
   pin_memory: false
 
