@@ -7,6 +7,7 @@ defaults:
   - override /data:
   - override /trainer: default
   - override /model: 
+  - override /hydra: default
 
 
 # all parameters below will be merged with parameters from default configurations set above
@@ -16,6 +17,7 @@ tags: ["conv1d", "1d"]
 
 seed: 12345786
 
+version: "resnest50_conv1d4"
 trainer:
   min_epochs: 10
   max_epochs: 15
@@ -56,10 +58,10 @@ model:
       - 3
       - 3 
       - 3
-    model_name: "resnest50d.in1k"
+    model_name: "efficientnet_b0"
     use_stem_rnn: false
     use_feature_rnn: false
-    dropout: 0.1
+    dropout: 0.05
   differential_lr: false
   compile: false
 
@@ -99,3 +101,7 @@ logger:
     group: "1Dmodels"
   aim:
     experiment: "1d cnn + rnn" 
+
+hydra:
+  run:
+    dir: ${paths.log_dir}/${task_name}/runs/${version}/${data.fold_id}  
