@@ -3,7 +3,7 @@ import random
 import numpy as np
 from pathlib import Path
 import polars as pl
-from scipy.signal import butter, lfilter, iirnotch
+from scipy.signal import butter, lfilter, iirnotch, filtfilt
 from torch.utils.data import Dataset
 
 from src.settings import TARGET_COLS, SAMPLE_RATE, EEG_DURATION, EEG_GROUP_IDX  # noqa
@@ -15,13 +15,13 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
 
 def notch_filter(data, fs, freq):
     b, a = iirnotch(freq, 30, fs)
-    y = lfilter(b, a, data, axis=0)
+    y = filtfilt(b, a, data, axis=0)
     return y
 
 
 def butter_bandpass_filter(data, lowcut, highcut, fs=200, order=5):
     b, a = butter_bandpass(lowcut, highcut, fs, order=order)
-    y = lfilter(b, a, data, axis=0)
+    y = filtfilt(b, a, data, axis=0)
     return y
 
 
@@ -29,7 +29,7 @@ def butter_lowpass_filter(data, cutoff_freq=20, sampling_rate=200, order=1):
     nyquist = 0.5 * sampling_rate
     normal_cutoff = cutoff_freq / nyquist
     b, a = butter(order, normal_cutoff, btype="low", analog=False)
-    filtered_data = lfilter(b, a, data, axis=0)
+    filtered_data = filtfilt(b, a, data, axis=0)
     return filtered_data
 
 
@@ -37,7 +37,7 @@ def butter_highpass_filter(data, cutoff_freq=0.1, sampling_rate=200, order=1):
     nyquist = 0.5 * sampling_rate
     normal_cutoff = cutoff_freq / nyquist
     b, a = butter(order, normal_cutoff, btype="high", analog=False)
-    filtered_data = lfilter(b, a, data, axis=0)
+    filtered_data = filtfilt(b, a, data, axis=0)
     return filtered_data
 
 
@@ -57,9 +57,14 @@ def get_sample_weights(df):
             (pl.sum_horizontal(TARGET_COLS)).alias("total_votes"),
         )
         .with_columns(
-            (pl.when(pl.col("total_votes") > 5).then(1).otherwise(0.5)).alias(
-                "sample_weight"
-            )
+            (
+                # pl.when(pl.col("total_votes") > 20)
+                # .then(1)
+                # .when((pl.col("total_votes") <= 20) & (pl.col("total_votes") > 10))
+                # .then(0.75)
+                # .otherwise(0.5)
+                pl.col("total_votes")
+            ).alias("sample_weight")
         )
     )
 
@@ -202,7 +207,7 @@ def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=40, order=5):
     out = butter_highpass_filter(
         out, cutoff_freq=low_f, sampling_rate=SAMPLE_RATE, order=order
     )
-    out = np.clip(out, -1024, 1024)
+    out = np.clip(out, -500, 500)
     # out = np.log1p(np.abs(out)) * np.sign(out) / 3
-    out = out / 300
+    out = out / 500
     return out[8:-8, :].astype(np.float32)

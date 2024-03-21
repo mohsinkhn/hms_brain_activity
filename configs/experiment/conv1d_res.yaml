@@ -17,16 +17,49 @@ tags: ["conv1d", "1d"]
 
 seed: 12345786
 
-version: "resnest50_conv1d4"
+version: "num_votes_weight"
 trainer:
   min_epochs: 10
   max_epochs: 15
   gradient_clip_val: 0.5
   precision: 16
 
+data:
+  _target_: src.nn_datasets.datamodule.LitDataModule
+  data_dir: ${paths.data_dir}
+  train_dataset: eegdataset.HMSTrain
+  val_dataset: eegdataset.HMSVal
+  test_dataset: eegdataset.HMSTest
+  test_eegs_dir: "./data"
+  batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+  num_folds: 5
+  fold_id: 1
+  num_workers: 0
+  low_f: 0.1
+  high_f: 40
+  order: 4
+  transforms:
+    - _target_: src.nn_augs.eeg_transforms.SideSwap
+      p: 0.5
+    - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
+      p: 0.3
+    - _target_: src.nn_augs.eeg_transforms.SignFlip
+      p: 0.3
+    - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
+      p: 0.0
+      max_zoom: 0.1
+    - _target_: src.nn_augs.eeg_transforms.GaussianNoise
+      p: 0.0
+      max_noise: 0.1
+
+  pin_memory: false
+
+hydra:
+  run:
+    dir: ${paths.log_dir}/${task_name}/runs/${version}/${data.fold_id}
+
 model:
   _target_: src.nn_models.litmodels.LitModel
-
   optimizer:
     _target_: timm.optim.MADGRAD
     _partial_: true
@@ -58,50 +91,19 @@ model:
       - 3
       - 3 
       - 3
-    model_name: "efficientnet_b0"
+    model_name: "efficientnet_b1"
     use_stem_rnn: false
     use_feature_rnn: false
     dropout: 0.05
+    use_bnorm: true
   differential_lr: false
   compile: false
-
-data:
-  _target_: src.nn_datasets.datamodule.LitDataModule
-  data_dir: ${paths.data_dir}
-  train_dataset: eegdataset.HMSTrain
-  val_dataset: eegdataset.HMSVal
-  test_dataset: eegdataset.HMSTest
-  test_eegs_dir: "./data"
-  batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-  num_folds: 5
-  fold_id: 1
-  num_workers: 0
-  low_f: 0.2
-  high_f: 40
-  order: 4
-  transforms:
-    - _target_: src.nn_augs.eeg_transforms.SideSwap
-      p: 0.3
-    - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
-      p: 0.3
-    - _target_: src.nn_augs.eeg_transforms.SignFlip
-      p: 0.3
-    - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
-      p: 0.1
-      max_zoom: 0.1
-    - _target_: src.nn_augs.eeg_transforms.GaussianNoise
-      p: 0.3
-      max_noise: 0.1
-
-  pin_memory: false
+  val_output_dir: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}
 
 logger:
   wandb:
     tags: ${tags}
     group: "1Dmodels"
   aim:
-    experiment: "1d cnn + rnn" 
+    experiment: "1d data models" 
 
-hydra:
-  run:
-    dir: ${paths.log_dir}/${task_name}/runs/${version}/${data.fold_id}  

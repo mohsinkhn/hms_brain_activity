@@ -14,7 +14,12 @@ from src.kaggle_metric import score
 from src.settings import TARGET_COLS
 from src.nn_datasets.components.eegdataset import load_eeg_data
 from src.utils.plot_batches import plot_zoomed_batch
-from src.utils.custom import get_comp_score, val_to_dataframe, test_to_dataframe
+from src.utils.custom import (
+    get_comp_score,
+    val_to_dataframe,
+    test_to_dataframe,
+    correct_means,
+)
 
 
 class KLDivLossWithLogits(nn.KLDivLoss):
@@ -44,7 +49,9 @@ class LitModel(L.LightningModule):
         scheduler_interval: str,
         differential_lr: bool,
         compile: bool,
+        val_output_dir: str = "./data",
         test_output_dir: str = "./data",
+        means: list = [0.157, 0.142, 0.103, 0.065, 0.114, 0.412],
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -190,7 +197,9 @@ class LitModel(L.LightningModule):
         )
 
     def post_process_validation_epoch_end(self, data) -> None:
-        data_df = val_to_dataframe(data)
+        data_df = val_to_dataframe(data, self.hparams.means)
+        data_df.write_csv(Path(self.hparams.val_output_dir) / "val_preds.csv")
+
         val_score = get_comp_score(data_df)
         self.log("val/score", val_score, on_step=False, on_epoch=True, prog_bar=False)
 
@@ -198,10 +207,18 @@ class LitModel(L.LightningModule):
         self.log("val/score2", val_score2, on_step=False, on_epoch=True, prog_bar=False)
 
         # table of means
-        means = data_df.select(
-            *[pl.mean(f"{col}_pred").alias(f"{col}_pred") for col in TARGET_COLS],
-            *[pl.mean(f"{col}_true").alias(f"{col}_true") for col in TARGET_COLS],
-        ).to_pandas()
+        means = (
+            data_df.group_by("eeg_id")
+            .agg(
+                *[pl.mean(f"{col}_pred").alias(f"{col}_pred") for col in TARGET_COLS],
+                *[pl.mean(f"{col}_true").alias(f"{col}_true") for col in TARGET_COLS],
+            )
+            .select(
+                *[pl.mean(f"{col}_pred").alias(f"{col}_pred") for col in TARGET_COLS],
+                *[pl.mean(f"{col}_true").alias(f"{col}_true") for col in TARGET_COLS],
+            )
+            .to_pandas()
+        )
         wandb.log({"means preds/y": wandb.Table(dataframe=means)})
 
         # Plot confusion matrix
@@ -256,5 +273,5 @@ class LitModel(L.LightningModule):
         wandb.log({"val/errors": wandb.Image(f"./val_errors/tmp.jpg")})
 
     def post_process_test_epoch_end(self, data) -> None:
-        data_df = test_to_dataframe(data)
+        data_df = test_to_dataframe(data, self.hparams.means)
         data_df.write_csv(Path(self.hparams.test_output_dir) / "submission.csv")
