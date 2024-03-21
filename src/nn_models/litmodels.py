@@ -198,6 +198,7 @@ class LitModel(L.LightningModule):
 
     def post_process_validation_epoch_end(self, data) -> None:
         data_df = val_to_dataframe(data, self.hparams.means)
+        Path(self.hparams.val_output_dir).mkdir(parents=True, exist_ok=True)
         data_df.write_csv(Path(self.hparams.val_output_dir) / "val_preds.csv")
 
         val_score = get_comp_score(data_df)

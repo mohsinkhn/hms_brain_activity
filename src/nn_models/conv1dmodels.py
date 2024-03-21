@@ -70,19 +70,19 @@ class InceptionBlock(nn.Module):
         self.c1 = ConvBnSilu(in_channels, out_channels, k, 1, use_bnorm=use_bnorm)
         self.c2 = ConvBnSilu(in_channels, out_channels, k + 2, 1, use_bnorm=use_bnorm)
         self.c3 = ConvBnSilu(in_channels, out_channels, k + 4, 1, use_bnorm=use_bnorm)
-        # self.c4 = ConvBnSilu(in_channels, out_channels, k + 6, 1, use_bnorm=use_bnorm)
-        # self.c5 = ConvBnSilu(in_channels, out_channels, k + 8, 1)
+        self.c4 = ConvBnSilu(in_channels, out_channels, k + 8, 1, use_bnorm=use_bnorm)
+        self.c5 = ConvBnSilu(in_channels, out_channels, k + 16, 1, use_bnorm=use_bnorm)
         self.c6 = ConvBnSilu(
-            out_channels * 3 + in_channels, out_channels, 1, use_bnorm=use_bnorm
+            out_channels * 5 + in_channels, out_channels, 1, use_bnorm=use_bnorm
         )
 
     def forward(self, x):
         c1 = self.c1(x)
         c2 = self.c2(x)
         c3 = self.c3(x)
-        # c4 = self.c4(x)
-        # c5 = self.c5(x)
-        x = torch.cat([c1, c2, c3, x], dim=1)
+        c4 = self.c4(x)
+        c5 = self.c5(x)
+        x = torch.cat([c1, c2, c3, c4, c5, x], dim=1)
         x = self.c6(x)
         return x
 
@@ -144,6 +144,7 @@ class InceptionConv1DModel(nn.Module):
         use_feature_rnn=False,
         dropout=0.1,
         use_bnorm=True,
+        conv2d_stride=2,
     ):
         super(InceptionConv1DModel, self).__init__()
         self.conv1d_encoder = Conv1DInceptionEncoder(
@@ -160,9 +161,10 @@ class InceptionConv1DModel(nn.Module):
             in_chans=in_channels,
             global_pool="",
         )
+        self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
         self.in_channels = in_channels
         self.use_stem_rnn = use_stem_rnn
-        self.stem_rnn = nn.GRU(features[-1], features[-1], 1, batch_first=True)
+        # self.stem_rnn = nn.GRU(features[-1], features[-1], 1, batch_first=True)
         self.use_feature_rnn = use_feature_rnn
         # self.feature_rnn = nn.RNN(
         #     self.conv2d.num_features, self.conv2d.num_features, 1, batch_first=True
@@ -179,18 +181,18 @@ class InceptionConv1DModel(nn.Module):
         x = x.permute(0, 2, 1).contiguous()
         x = x.view(b * c, 1, l)
         x = self.conv1d_encoder(x)
-        if self.use_stem_rnn:
-            x = x.permute(0, 2, 1).contiguous()
-            x, _ = self.stem_rnn(x)
-            x = x.permute(0, 2, 1).contiguous()
+        # if self.use_stem_rnn:
+        #     x = x.permute(0, 2, 1).contiguous()
+        #     x, _ = self.stem_rnn(x)
+        #     x = x.permute(0, 2, 1).contiguous()
         x = x.view(b, c, x.shape[1], x.shape[2])
         x = self.conv2d(x)
-        if self.use_feature_rnn:
-            x = x.mean(dim=2)
-            x = x.permute(0, 2, 1).contiguous()
-            x, _ = self.feature_rnn(x)
-            x = x.permute(0, 2, 1).contiguous()
-            x = x.unsqueeze(2)
+        # if self.use_feature_rnn:
+        #     x = x.mean(dim=2)
+        #     x = x.permute(0, 2, 1).contiguous()
+        #     x, _ = self.feature_rnn(x)
+        #     x = x.permute(0, 2, 1).contiguous()
+        #     x = x.unsqueeze(2)
         x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
         x = x.view(x.size(0), -1)
         x = self.classifier(x)

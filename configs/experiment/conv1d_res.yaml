@@ -17,7 +17,7 @@ tags: ["conv1d", "1d"]
 
 seed: 12345786
 
-version: "num_votes_weight"
+version: "3_5_7_11_19_kernels_inception"
 trainer:
   min_epochs: 10
   max_epochs: 15
@@ -35,7 +35,7 @@ data:
   num_folds: 5
   fold_id: 1
   num_workers: 0
-  low_f: 0.1
+  low_f: 0.2
   high_f: 40
   order: 4
   transforms:
@@ -96,6 +96,7 @@ model:
     use_feature_rnn: false
     dropout: 0.05
     use_bnorm: true
+    conv2d_stride: 2
   differential_lr: false
   compile: false
   val_output_dir: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}

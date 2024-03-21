@@ -31,7 +31,7 @@ def get_comp_score(data: pl.DataFrame, group_col="eeg_id"):
         .agg(
             [
                 *[
-                    pl.col(f"{col}_pred").sum().alias(f"{col}_pred")
+                    pl.col(f"{col}_pred").sum().clip(1e-8, 100).alias(f"{col}_pred")
                     for col in TARGET_COLS
                 ],
                 *[
