@@ -8,6 +8,7 @@ from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader, Dataset
 
 from src.nn_datasets import components
+from src.settings import TARGET_COLS
 
 
 class LitDataModule(LightningDataModule):
@@ -19,6 +20,8 @@ class LitDataModule(LightningDataModule):
         batch_size: int,
         num_workers: int,
         pin_memory: bool,
+        pseudo_label_filepath: Optional[str] = None,
+        pseudo_label_weight: float = 0.5,
         num_folds: int = 5,
         fold_id: int = 0,
         transforms: Any = None,
@@ -153,10 +156,21 @@ class LitDataModule(LightningDataModule):
         train_idx, val_idx = list(kf.split(patient_ids))[self.hparams.fold_id]
         train_df = df.filter(pl.col("patient_id").is_in(patient_ids[train_idx]))
         val_df = df.filter(pl.col("patient_id").is_in(patient_ids[val_idx]))
-
+        if self.hparams.pseudo_label_filepath is not None:
+            pseudo_df = pl.read_csv(self.hparams.pseudo_label_filepath).select(
+                [
+                    "eeg_id",
+                    "eeg_sub_id",
+                    *[f"{target}_pred" for target in TARGET_COLS],
+                ]
+            )
+        else:
+            pseudo_df = None
         train_dataset = eval(f"components.{self.hparams.train_dataset}")(
             df=train_df,
             data_dir=Path(self.hparams.data_dir) / "train_eegs",
+            pseudo_df=pseudo_df,
+            pseudo_weight=self.hparams.pseudo_label_weight,
             transforms=self.hparams.transforms,
             low_f=self.hparams.low_f,
             high_f=self.hparams.high_f,

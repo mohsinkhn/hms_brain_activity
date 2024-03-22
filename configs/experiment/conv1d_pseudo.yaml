@@ -1,0 +1,114 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data:
+  - override /trainer: default
+  - override /model: 
+  - override /hydra: default
+
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["conv1d", "1d"]
+
+seed: 12345786
+
+version: "pseudo_log_v2"
+trainer:
+  min_epochs: 10
+  max_epochs: 15
+  gradient_clip_val: 0.5
+  precision: 16
+
+data:
+  _target_: src.nn_datasets.datamodule.LitDataModule
+  data_dir: ${paths.data_dir}
+  train_dataset: eegdataset.HMSTrain
+  val_dataset: eegdataset.HMSVal
+  test_dataset: eegdataset.HMSTest
+  test_eegs_dir: "./data"
+  pseudo_label_filepath: /home/mohsin/testing/hms_benchmark/logs/train/val_outputs/3_5_7_11_19_kernels_inception/val_preds.csv
+  pseudo_label_weight: 2.0
+  batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+  num_folds: 5
+  fold_id: 4
+  num_workers: 0
+  low_f: 0.2
+  high_f: 40
+  order: 5
+  transforms:
+    - _target_: src.nn_augs.eeg_transforms.SideSwap
+      p: 0.5
+    - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
+      p: 0.3
+    - _target_: src.nn_augs.eeg_transforms.SignFlip
+      p: 0.1
+    - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
+      p: 0.0
+      max_zoom: 0.1
+    - _target_: src.nn_augs.eeg_transforms.GaussianNoise
+      p: 0.0
+      max_noise: 0.1
+    - _target_: src.nn_augs.eeg_transforms.FTSurrogate
+      p: 0.0
+      phase_noise_magnitude: 0.05
+  pin_memory: false
+
+hydra:
+  run:
+    dir: ${paths.log_dir}/${task_name}/runs/${version}/${data.fold_id}
+
+model:
+  _target_: src.nn_models.litmodels.LitModel
+  optimizer:
+    _target_: timm.optim.MADGRAD
+    _partial_: true
+    lr: 0.001
+    weight_decay: 0.0001
+    #nesterov: true
+    #momentum: 0.9
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    _partial_: true
+    T_max: ${trainer.max_epochs}
+    eta_min: 1e-6
+
+  scheduler_interval: "epoch"
+  net:
+    _target_: src.nn_models.conv1dmodels.InceptionConv1DModel
+    in_channels: 16
+    out_channels: 6
+    features:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+    kernel_sizes:
+      - 3
+      - 3
+      - 3
+      - 3 
+      - 3
+    model_name: "efficientnet_b1"
+    use_stem_rnn: false
+    use_feature_rnn: false
+    dropout: 0.05
+    use_bnorm: true
+    conv2d_stride: 2
+  differential_lr: false
+  compile: false
+  val_output_dir: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "1Dmodels"
+  aim:
+    experiment: "1d data models" 
+

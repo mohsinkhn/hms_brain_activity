@@ -79,11 +79,35 @@ def norm_target_cols(df):
 
 
 class HMSTrain(Dataset):
-    def __init__(self, df, data_dir, low_f=0.5, high_f=50, order=5, transforms=None):
+    def __init__(
+        self,
+        df,
+        data_dir,
+        pseudo_df=None,
+        pseudo_weight=0.5,
+        low_f=0.5,
+        high_f=50,
+        order=5,
+        transforms=None,
+    ):
         self.df = df  # .unique(subset=["eeg_id", *TARGET_COLS])
         self.df = get_sample_weights(self.df)
         self.unq_ids = self.df["eeg_id"].unique().to_list()
         self.data_dir = data_dir
+        self.df = norm_target_cols(self.df)
+        self.df = self.df.join(pseudo_df, on=["eeg_id", "eeg_sub_id"], how="left")
+        self.df = self.df.with_columns(
+            *[
+                pl.when(pl.col("num_votes") < 7)
+                .then(
+                    pl.col(target)
+                    + pseudo_weight * pl.col(f"{target}_pred").fill_null(0)
+                )
+                .otherwise(pl.col(target))
+                .alias(target)
+                for target in TARGET_COLS
+            ]
+        )
         self.df = norm_target_cols(self.df)
         self.low_f = low_f
         self.high_f = high_f
@@ -207,7 +231,8 @@ def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=40, order=5):
     out = butter_highpass_filter(
         out, cutoff_freq=low_f, sampling_rate=SAMPLE_RATE, order=order
     )
-    out = np.clip(out, -500, 500)
-    # out = np.log1p(np.abs(out)) * np.sign(out) / 3
-    out = out / 500
+    # out = out - np.median(out, axis=0)
+    out = np.clip(out, -1000, 1000)
+    out = np.log1p(np.abs(out)) * np.sign(out)
+    # out = out / 100
     return out[8:-8, :].astype(np.float32)

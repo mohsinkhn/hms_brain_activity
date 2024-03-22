@@ -161,7 +161,7 @@ class InceptionConv1DModel(nn.Module):
             in_chans=in_channels,
             global_pool="",
         )
-        self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
+        # self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
         self.in_channels = in_channels
         self.use_stem_rnn = use_stem_rnn
         # self.stem_rnn = nn.GRU(features[-1], features[-1], 1, batch_first=True)

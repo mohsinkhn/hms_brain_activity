@@ -67,12 +67,10 @@ def get_comp_score(data: pl.DataFrame, group_col="eeg_id"):
         pl.col(group_col),
         *[pl.col(f"{col}_pred").alias(col) for col in TARGET_COLS],
     ).to_pandas()
-    print(pred_data.head())
     true_data = data.select(
         pl.col(group_col),
         *[pl.col(f"{col}_true").alias(col) for col in TARGET_COLS],
     ).to_pandas()
-    print(true_data.head())
     return score(solution=true_data, submission=pred_data, row_id_column_name=group_col)
 
 
