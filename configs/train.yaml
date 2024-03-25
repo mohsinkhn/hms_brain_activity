@@ -51,3 +51,5 @@ seed: null
 version: null
 #
 optimized_metric: "val/score"
+
+comment: "none"

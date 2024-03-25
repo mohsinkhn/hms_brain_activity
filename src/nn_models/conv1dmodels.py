@@ -40,6 +40,8 @@ class ConvBnSilu(nn.Module):
         stride=1,
         padding="same",
         use_bnorm=True,
+        bnorm="batch",
+        inp_raw_channels=16,
     ):
         super(ConvBnSilu, self).__init__()
         self.use_bnorm = use_bnorm
@@ -52,6 +54,7 @@ class ConvBnSilu(nn.Module):
             bias=False,
         )
         self.bn = nn.BatchNorm1d(out_channels)
+        self.bnorm = bnorm
         self.silu = nn.SiLU(inplace=True)
 
     def forward(self, x):
@@ -64,16 +67,30 @@ class ConvBnSilu(nn.Module):
 
 class InceptionBlock(nn.Module):
     def __init__(
-        self, in_channels, out_channels, k, use_bnorm, *args, **kwargs
+        self, in_channels, out_channels, k, use_bnorm, bnorm="batch", *args, **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.c1 = ConvBnSilu(in_channels, out_channels, k, 1, use_bnorm=use_bnorm)
-        self.c2 = ConvBnSilu(in_channels, out_channels, k + 2, 1, use_bnorm=use_bnorm)
-        self.c3 = ConvBnSilu(in_channels, out_channels, k + 4, 1, use_bnorm=use_bnorm)
-        self.c4 = ConvBnSilu(in_channels, out_channels, k + 8, 1, use_bnorm=use_bnorm)
-        self.c5 = ConvBnSilu(in_channels, out_channels, k + 16, 1, use_bnorm=use_bnorm)
+        self.c1 = ConvBnSilu(
+            in_channels, out_channels, k, 1, use_bnorm=use_bnorm, bnorm=bnorm
+        )
+        self.c2 = ConvBnSilu(
+            in_channels, out_channels, k + 2, 1, use_bnorm=use_bnorm, bnorm=bnorm
+        )
+        self.c3 = ConvBnSilu(
+            in_channels, out_channels, k + 4, 1, use_bnorm=use_bnorm, bnorm=bnorm
+        )
+        self.c4 = ConvBnSilu(
+            in_channels, out_channels, k + 8, 1, use_bnorm=use_bnorm, bnorm=bnorm
+        )
+        self.c5 = ConvBnSilu(
+            in_channels, out_channels, k + 16, 1, use_bnorm=use_bnorm, bnorm=bnorm
+        )
         self.c6 = ConvBnSilu(
-            out_channels * 5 + in_channels, out_channels, 1, use_bnorm=use_bnorm
+            out_channels * 5 + in_channels,
+            out_channels,
+            1,
+            use_bnorm=use_bnorm,
+            bnorm=bnorm,
         )
 
     def forward(self, x):
@@ -89,13 +106,23 @@ class InceptionBlock(nn.Module):
 
 class InceptionResBlock(nn.Module):
     def __init__(
-        self, in_channels, feat, kernel_size, dropout, use_bnorm=True, *args, **kwargs
+        self,
+        in_channels,
+        feat,
+        kernel_size,
+        dropout,
+        use_bnorm=True,
+        bnorm="batch",
+        *args,
+        **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
         self.drop = nn.Dropout1d(dropout)
-        self.conv1 = ConvBnSilu(in_channels, feat, 1, 1, use_bnorm=use_bnorm)
+        self.conv1 = ConvBnSilu(
+            in_channels, feat, 1, 1, use_bnorm=use_bnorm, bnorm=bnorm
+        )
         self.inception = InceptionBlock(
-            in_channels, feat, kernel_size, use_bnorm=use_bnorm
+            in_channels, feat, kernel_size, use_bnorm=use_bnorm, bnorm=bnorm
         )
         self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
 
@@ -114,6 +141,7 @@ class Conv1DInceptionEncoder(nn.Module):
         kernel_sizes=[3, 3, 5, 5, 5, 5, 5],
         dropout=0.1,
         use_bnorm=True,
+        bnorm="batch",
     ):
         super(Conv1DInceptionEncoder, self).__init__()
         blocks = []
@@ -121,7 +149,12 @@ class Conv1DInceptionEncoder(nn.Module):
         for feat, kernel_size in zip(features, kernel_sizes):
             blocks.append(
                 InceptionResBlock(
-                    in_channels, feat, kernel_size, dropout, use_bnorm=use_bnorm
+                    in_channels,
+                    feat,
+                    kernel_size,
+                    dropout,
+                    use_bnorm=use_bnorm,
+                    bnorm=bnorm,
                 )
             )
             in_channels = feat
@@ -144,6 +177,7 @@ class InceptionConv1DModel(nn.Module):
         use_feature_rnn=False,
         dropout=0.1,
         use_bnorm=True,
+        bnorm="batch",
         conv2d_stride=2,
     ):
         super(InceptionConv1DModel, self).__init__()
@@ -153,6 +187,7 @@ class InceptionConv1DModel(nn.Module):
             kernel_sizes=kernel_sizes,
             dropout=dropout,
             use_bnorm=use_bnorm,
+            bnorm=bnorm,
         )
         self.conv2d = timm.create_model(
             model_name,

@@ -52,6 +52,7 @@ class LitModel(L.LightningModule):
         val_output_dir: str = "./data",
         test_output_dir: str = "./data",
         means: list = [0.157, 0.142, 0.103, 0.065, 0.114, 0.412],
+        use_sample_weights: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -66,7 +67,14 @@ class LitModel(L.LightningModule):
     def step(self, batch):
         x, y = batch["data"], batch["targets"]
         logits = self.forward(x)
-        loss = self.criterion(logits, y, sample_weight=batch.get("sample_weight", None))
+        if self.hparams.use_sample_weights:
+            sample_weight = batch.get("sample_weight", None)
+            if self.current_epoch == self.trainer.max_epochs - 1:
+                print("droping low confidence samples")
+                sample_weight[sample_weight < 7] = 0.1
+        else:
+            sample_weight = None
+        loss = self.criterion(logits, y, sample_weight=sample_weight)
         return loss, logits, y
 
     def training_step(self, batch, batch_idx):
@@ -148,8 +156,7 @@ class LitModel(L.LightningModule):
                     {
                         "params": conv2d_params,
                         "lr": self.hparams.optimizer.keywords["lr"] * 0.1,
-                        "weight_decay": self.hparams.optimizer.keywords["weight_decay"]
-                        * 0.1,
+                        "weight_decay": self.hparams.optimizer.keywords["weight_decay"],
                     },
                     {
                         "params": other_params,

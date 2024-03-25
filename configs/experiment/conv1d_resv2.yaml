@@ -33,8 +33,6 @@ data:
   val_dataset: eegdataset.HMSVal
   test_dataset: eegdataset.HMSTest
   test_eegs_dir: "./data"
-  pseudo_label_filepath: /home/mohsin/testing/hms_benchmark/logs/train/val_outputs/3_5_7_11_19_kernels_inception/val_preds.csv
-  pseudo_label_weight: 10
   batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
   num_folds: 5
   fold_id: 4
@@ -48,7 +46,7 @@ data:
     - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
       p: 0.3
     - _target_: src.nn_augs.eeg_transforms.SignFlip
-      p: 0.1
+      p: 0.0
     - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
       p: 0.0
       max_zoom: 0.1
@@ -100,8 +98,9 @@ model:
     model_name: "efficientnet_b1"
     use_stem_rnn: false
     use_feature_rnn: false
-    dropout: 0.05
+    dropout: 0.0
     use_bnorm: true
+    bnorm: "batch"
     conv2d_stride: 2
   differential_lr: false
   compile: false
@@ -112,7 +111,7 @@ callbacks:
   model_checkpoint:
     dirpath: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}/checkpoints
     filename: "epoch_{epoch:03d}_fold${data.fold_id}_score2_{val/score:.4f}"
-    monitor: "val/score2"
+    monitor: "val/score"
     mode: "min"
     
 logger:

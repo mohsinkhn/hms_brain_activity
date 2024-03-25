@@ -64,7 +64,9 @@ def get_sample_weights(df):
                 # .then(0.75)
                 # .otherwise(0.5)
                 pl.col("total_votes")
-            ).alias("sample_weight")
+            )
+            .alias("sample_weight")
+            .clip(1, 20)
         )
     )
 
@@ -95,20 +97,21 @@ class HMSTrain(Dataset):
         self.unq_ids = self.df["eeg_id"].unique().to_list()
         self.data_dir = data_dir
         self.df = norm_target_cols(self.df)
-        self.df = self.df.join(pseudo_df, on=["eeg_id", "eeg_sub_id"], how="left")
-        self.df = self.df.with_columns(
-            *[
-                pl.when(pl.col("num_votes") < 7)
-                .then(
-                    pl.col(target)
-                    + pseudo_weight * pl.col(f"{target}_pred").fill_null(0)
-                )
-                .otherwise(pl.col(target))
-                .alias(target)
-                for target in TARGET_COLS
-            ]
-        )
-        self.df = norm_target_cols(self.df)
+        if pseudo_df is not None:
+            self.df = self.df.join(pseudo_df, on=["eeg_id", "eeg_sub_id"], how="left")
+            self.df = self.df.with_columns(
+                *[
+                    pl.when(pl.col("num_votes") < 10)
+                    .then(
+                        pl.col(target)
+                        + pseudo_weight * pl.col(f"{target}_pred").fill_null(0)
+                    )
+                    .otherwise(pl.col(target))
+                    .alias(target)
+                    for target in TARGET_COLS
+                ]
+            )
+            self.df = norm_target_cols(self.df)
         self.low_f = low_f
         self.high_f = high_f
         self.order = order
