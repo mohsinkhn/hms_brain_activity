@@ -72,7 +72,7 @@ def get_sample_weights(df):
 
 
 def norm_target_cols(df):
-    norm_targets = df.select(TARGET_COLS).to_numpy()
+    norm_targets = df.select(TARGET_COLS).to_numpy().astype(np.float32)
     target_sums = norm_targets.sum(axis=1, keepdims=True)
     norm_targets = norm_targets / target_sums
     return df.with_columns(
