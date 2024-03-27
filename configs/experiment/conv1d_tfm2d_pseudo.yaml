@@ -24,7 +24,7 @@ trainer:
   min_epochs: 10
   max_epochs: 15
   gradient_clip_val: 0.5
-  precision: bf16
+  precision: 16
 
 data:
   _target_: src.nn_datasets.datamodule.LitDataModule
