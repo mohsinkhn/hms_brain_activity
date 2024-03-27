@@ -22,6 +22,15 @@ from src.utils.custom import (
 )
 
 
+def cross_entropy(preds, targets, reduction="none"):
+    log_softmax = nn.LogSoftmax(dim=-1)
+    loss = (-targets * log_softmax(preds)).sum(1)
+    if reduction == "none":
+        return loss
+    elif reduction == "mean":
+        return loss.mean()
+
+
 class KLDivLossWithLogits(nn.KLDivLoss):
     def __init__(self):
         super().__init__(reduction="none")
@@ -53,6 +62,11 @@ class LitModel(L.LightningModule):
         test_output_dir: str = "./data",
         means: list = [0.157, 0.142, 0.103, 0.065, 0.114, 0.412],
         use_sample_weights: bool = True,
+        finetune: bool = False,
+        mixup: bool = False,
+        mixup_alpha: float = 0.4,
+        sim_mse: bool = False,
+        sim_mse_alpha: float = 0.1,
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -60,20 +74,41 @@ class LitModel(L.LightningModule):
         self.validation_step_outputs = []
         self.test_step_outputs = []
         self.criterion = KLDivLossWithLogits()
+        self.bce = nn.BCEWithLogitsLoss()
 
     def forward(self, x):
         return self.model(x)
 
     def step(self, batch):
         x, y = batch["data"], batch["targets"]
-        logits = self.forward(x)
         if self.hparams.use_sample_weights:
             sample_weight = batch.get("sample_weight", None)
-            if self.current_epoch == self.trainer.max_epochs - 1:
+            if (self.hparams.finetune) & (sample_weight is not None) and (
+                self.current_epoch == self.trainer.max_epochs - 1
+            ):
                 print("droping low confidence samples")
                 sample_weight[sample_weight < 7] = 0.1
         else:
             sample_weight = None
+
+        if self.training and (self.hparams.mixup or self.hparams.sim_mse):
+            x = self.model.forward_features(x)
+            if self.hparams.sim_mse:
+                feats = x / x.norm(dim=1, keepdim=True)
+                feats_sim = feats @ feats.T  # b x b
+                targets_sim = y @ y.T  # b x b
+                loss_sim = self.bce(feats_sim, targets_sim)
+                logits = self.model.classifier(x)
+                loss = (
+                    self.criterion(logits, y, sample_weight=sample_weight)
+                    + self.hparams.sim_mse_alpha * loss_sim
+                )
+                return loss, logits, y
+            else:
+                x, y = mixup(x, y, self.hparams.mixup_alpha)
+                logits = self.model.classifier(x)
+        else:
+            logits = self.forward(x)
         loss = self.criterion(logits, y, sample_weight=sample_weight)
         return loss, logits, y
 
@@ -283,3 +318,12 @@ class LitModel(L.LightningModule):
     def post_process_test_epoch_end(self, data) -> None:
         data_df = test_to_dataframe(data, self.hparams.means)
         data_df.write_csv(Path(self.hparams.test_output_dir) / "submission.csv")
+
+
+def mixup(x, y, alpha=0.4):
+    alpha = 0.4
+    lam = np.random.beta(alpha, alpha)
+    index = torch.randperm(x.size(0))
+    mixed_x = lam * x + (1 - lam) * x[index]
+    y = (y + y[index]) / 2
+    return mixed_x, y
