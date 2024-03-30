@@ -243,7 +243,7 @@ class LitModel(L.LightningModule):
         Path(self.hparams.val_output_dir).mkdir(parents=True, exist_ok=True)
         data_df.write_csv(Path(self.hparams.val_output_dir) / "val_preds.csv")
 
-        val_score = get_comp_score(data_df)
+        val_score = get_comp_score(data_df.filter(pl.col("num_votes") > 3))
         self.log("val/score", val_score, on_step=False, on_epoch=True, prog_bar=False)
 
         val_score2 = get_comp_score(data_df.filter(pl.col("num_votes") > 7))

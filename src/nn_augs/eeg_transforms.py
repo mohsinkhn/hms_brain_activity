@@ -208,3 +208,72 @@ class FTSurrogate(object):
                 random_state=None,
             )
         return sample
+
+
+class NeighborSwap(object):
+    def __init__(self, p: float = 0.5):
+        self.p = p
+
+    def __call__(self, sample: np.ndarray) -> np.ndarray:
+        if np.random.rand() < self.p:
+            return sample[
+                :,
+                [
+                    1,
+                    0,
+                    3,
+                    2,
+                    5,
+                    4,
+                    7,
+                    6,
+                    9,
+                    8,
+                    11,
+                    10,
+                    13,
+                    12,
+                    15,
+                    14,
+                ],
+            ]
+        return sample
+
+
+class TimeMask(object):
+    def __init__(self, p: float = 0.5, max_mask: int = 0.2):
+        self.p = p
+        self.max_mask = max_mask
+
+    def __call__(self, sample: np.ndarray) -> np.ndarray:
+        if np.random.rand() < self.p:
+            mask_num = int(len(sample) * np.random.rand() * self.max_mask)
+            mask_start = int(len(sample) * np.random.rand())
+            sample[mask_start : mask_start + mask_num] = 0
+            return sample
+        return sample
+
+
+class ChannelMask(object):
+    def __init__(self, p: float = 0.5, mask_num: int = 1):
+        self.p = p
+        self.mask_num = mask_num
+
+    def __call__(self, sample: np.ndarray) -> np.ndarray:
+        if np.random.rand() < self.p:
+            mask_start = int(len(sample) * np.random.rand())
+            sample[:, mask_start : mask_start + self.mask_num] = 0
+            return sample
+        return sample
+
+
+class MeanShift(object):
+    def __init__(self, p: float = 0.5, max_shift: int = 10):
+        self.p = p
+        self.max_shift = max_shift
+
+    def __call__(self, sample: np.ndarray) -> np.ndarray:
+        if np.random.rand() < self.p:
+            shift = (np.random.rand() - 0.5) * self.max_shift
+            return sample + shift
+        return sample

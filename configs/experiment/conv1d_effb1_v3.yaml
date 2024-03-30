@@ -1,0 +1,139 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data:
+  - override /trainer: default
+  - override /model: 
+  - override /hydra: default
+  - override /callbacks: default
+
+
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["conv1d", "1d"]
+
+seed: 12345786
+
+version: "effb3_sim_loss"
+trainer:
+  min_epochs: 10
+  max_epochs: 20
+  gradient_clip_val: 0.5
+  precision: 16
+
+data:
+  _target_: src.nn_datasets.datamodule.LitDataModule
+  data_dir: ${paths.data_dir}
+  train_dataset: eegdataset.HMSTrainv2
+  val_dataset: eegdataset.HMSVal
+  test_dataset: eegdataset.HMSTest
+  test_eegs_dir: "./data"
+  batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+  num_folds: 5
+  fold_id: 4
+  num_workers: 0
+  low_f: 0.2
+  high_f: 30
+  order: 4
+  transforms:
+    - _target_: src.nn_augs.eeg_transforms.SideSwap
+      p: 0.5
+    - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
+      p: 0.3
+    - _target_: src.nn_augs.eeg_transforms.SignFlip
+      p: 0.3
+    - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
+      p: 0.3
+      max_zoom: 0.1
+    - _target_: src.nn_augs.eeg_transforms.GaussianNoise
+      p: 0.5
+      max_noise: 0.02
+    - _target_: src.nn_augs.eeg_transforms.FTSurrogate
+      p: 0.0
+      phase_noise_magnitude: 0.05
+    - _target_: src.nn_augs.eeg_transforms.TimeMask
+      p: 0.2
+      max_mask: 0.05
+    - _target_: src.nn_augs.eeg_transforms.NeighborSwap
+      p: 0.1
+    - _target_: src.nn_augs.eeg_transforms.ChannelMask
+      p: 0.1
+      mask_num: 1
+    - _target_: src.nn_augs.eeg_transforms.MeanShift
+      p: 0.3
+      max_shift: 10
+  pin_memory: false
+
+hydra:
+  run:
+    dir: ${paths.log_dir}/${task_name}/runs/${version}/${data.fold_id}
+
+model:
+  _target_: src.nn_models.litmodels.LitModel
+  optimizer:
+    _target_: timm.optim.MADGRAD
+    _partial_: true
+    lr: 0.001
+    weight_decay: 0.0001
+    #nesterov: true
+    #momentum: 0.9
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    _partial_: true
+    T_max: ${trainer.max_epochs}
+    eta_min: 1e-6
+
+  scheduler_interval: "epoch"
+  net:
+    _target_: src.nn_models.conv1dmodels.InceptionConv1DModel
+    in_channels: 16
+    out_channels: 6
+    features:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+    kernel_sizes:
+      - 3
+      - 3
+      - 3
+      - 3 
+      - 3
+    model_name: "efficientnetv2_rw_t.ra2_in1k"
+    use_stem_rnn: false
+    use_feature_rnn: false
+    dropout: 0.0
+    use_bnorm: true
+    bnorm: "batch"
+    conv2d_stride: 2
+  differential_lr: false
+  compile: false
+  val_output_dir: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}
+  use_sample_weights: True
+  mixup: false
+  mixup_alpha: 0.8
+  sim_mse: true
+  sim_mse_alpha: 0.1
+
+
+callbacks:
+  model_checkpoint:
+    dirpath: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}/checkpoints
+    filename: "epoch_{epoch:03d}_fold${data.fold_id}_score2_{val/score:.4f}"
+    monitor: "val/score"
+    mode: "min"
+    
+logger:
+  wandb:
+    tags: ${tags}
+    group: "1Dmodels"
+  aim:
+    experiment: "1d data models" 
+

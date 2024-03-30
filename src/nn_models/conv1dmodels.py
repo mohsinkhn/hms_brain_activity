@@ -207,28 +207,18 @@ class InceptionConv1DModel(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d((1, 1))
         self.classifier = nn.Linear(self.conv2d.num_features * 2, out_channels)
 
-    def forward(self, x):
-        # x = self.fc1(x)
-        # x = self.relu(x)
-        xc = []
+    def forward_features(self, x):
         b, l, c = x.shape
-        x = x.permute(0, 2, 1).contiguous()
-        x = x.view(b * c, 1, l)
+        x = x.permute(0, 2, 1).contiguous().view(b * c, 1, l)
         x = self.conv1d_encoder(x)
-        # if self.use_stem_rnn:
-        #     x = x.permute(0, 2, 1).contiguous()
-        #     x, _ = self.stem_rnn(x)
-        #     x = x.permute(0, 2, 1).contiguous()
         x = x.view(b, c, x.shape[1], x.shape[2])
         x = self.conv2d(x)
-        # if self.use_feature_rnn:
-        #     x = x.mean(dim=2)
-        #     x = x.permute(0, 2, 1).contiguous()
-        #     x, _ = self.feature_rnn(x)
-        #     x = x.permute(0, 2, 1).contiguous()
-        #     x = x.unsqueeze(2)
-        x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
+        x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
         x = x.view(x.size(0), -1)
+        return x
+
+    def forward(self, x):
+        x = self.forward_features(x)
         x = self.classifier(x)
         return x
 
