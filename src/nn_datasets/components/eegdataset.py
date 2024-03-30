@@ -181,6 +181,7 @@ class HMSVal(Dataset):
             data = data / 100
         elif self.scale == "log":
             data = np.log1p(np.abs(data)) * np.sign(data)
+        data = data.astype(np.float32)
         targets = patient_df[TARGET_COLS].values.flatten()
         # targets = targets / targets.sum()
         return {
@@ -217,6 +218,7 @@ class HMSTest(Dataset):
             data = data / 100
         elif self.scale == "log":
             data = np.log1p(np.abs(data)) * np.sign(data)
+        data = data.astype(np.float32)
         return {
             "data": data.astype(np.float32),
             "eeg_id": eeg_id.astype(np.int64),
@@ -257,7 +259,7 @@ def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=40, order=5):
     out = np.clip(out, -1000, 1000)
     # out = np.log1p(np.abs(out)) * np.sign(out)
     # out = out / 100
-    return out.astype(np.float32)
+    return out
 
 
 class HMSTrainv2(Dataset):
