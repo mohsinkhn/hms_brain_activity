@@ -102,11 +102,12 @@ model:
     use_bnorm: true
     bnorm: "batch"
     conv2d_stride: 2
+    old: True
+
   differential_lr: false
   compile: false
   val_output_dir: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}
   use_sample_weights: True
-  old: True
 
 callbacks:
   model_checkpoint:
