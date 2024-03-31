@@ -178,6 +178,7 @@ class InceptionConv1DModel(nn.Module):
         use_bnorm=True,
         bnorm="batch",
         conv2d_stride=2,
+        old=False,
     ):
         super(InceptionConv1DModel, self).__init__()
         self.conv1d_encoder = Conv1DInceptionEncoder(
@@ -206,6 +207,7 @@ class InceptionConv1DModel(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.max_pool = nn.AdaptiveMaxPool2d((1, 1))
         self.classifier = nn.Linear(self.conv2d.num_features * 2, out_channels)
+        self.old = old
 
     def forward_features(self, x):
         b, l, c = x.shape
@@ -213,7 +215,11 @@ class InceptionConv1DModel(nn.Module):
         x = self.conv1d_encoder(x)
         x = x.view(b, c, x.shape[1], x.shape[2])
         x = self.conv2d(x)
-        x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
+        if self.old:
+            x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
+        else:
+            x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
+        # x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
         x = x.view(x.size(0), -1)
         return x
 
