@@ -85,6 +85,7 @@ class InceptionBlock(nn.Module):
         self.c5 = ConvBnSilu(
             in_channels, out_channels, k + 16, 1, use_bnorm=use_bnorm, bnorm=bnorm
         )
+        # attention block
         self.c6 = ConvBnSilu(
             out_channels * 5 + in_channels,
             out_channels,
@@ -213,7 +214,7 @@ class InceptionConv1DModel(nn.Module):
         b, l, c = x.shape
         x = x.permute(0, 2, 1).contiguous().view(b * c, 1, l)
         x = self.conv1d_encoder(x)
-        x = x.view(b, c, x.shape[1], x.shape[2])
+        x = x.view(b, c, x.shape[1], x.shape[2])  # b, 16, 128, 312 -
         x = self.conv2d(x)
         if self.old:
             x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
@@ -293,6 +294,73 @@ class InceptionStackedModel(nn.Module):
         x = x[:, :, :, 4:-4]
         x = self.conv2d(x)
         x = torch.cat([x.mean(dim=1), x.max(dim=1).values], dim=1)
+        x = x.view(x.size(0), -1)
+        return x
+
+    def forward(self, x):
+        x = self.forward_features(x)
+        x = self.classifier(x)
+        return x
+
+
+class InceptionSpecModel(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        features,
+        kernel_sizes,
+        model_name="efficientnet_b1",
+        pretrained=True,
+        use_stem_rnn=False,
+        use_feature_rnn=False,
+        dropout=0.1,
+        use_bnorm=True,
+        bnorm="batch",
+        conv2d_stride=2,
+        old=False,
+    ):
+        super(InceptionConv1DModel, self).__init__()
+        self.conv1d_encoder = Conv1DInceptionEncoder(
+            1,
+            features=features,
+            kernel_sizes=kernel_sizes,
+            dropout=dropout,
+            use_bnorm=use_bnorm,
+            bnorm=bnorm,
+        )
+        self.conv2d = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=in_channels,
+            global_pool="",
+        )
+        # self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
+        self.in_channels = in_channels
+        self.use_stem_rnn = use_stem_rnn
+        # self.stem_rnn = nn.GRU(features[-1], features[-1], 1, batch_first=True)
+        self.use_feature_rnn = use_feature_rnn
+        # self.feature_rnn = nn.RNN(
+        #     self.conv2d.num_features, self.conv2d.num_features, 1, batch_first=True
+        # )
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.max_pool = nn.AdaptiveMaxPool2d((1, 1))
+        self.classifier = nn.Linear(self.conv2d.num_features * 2, out_channels)
+        self.old = old
+
+    def forward_features(self, x):
+        b, l, c = x.shape
+        x = x.permute(0, 2, 1).contiguous().view(b * c, 1, l)
+        x = self.conv1d_encoder(x)
+        x = x.view(b, c, x.shape[1], x.shape[2])  # b, 16, 128, 312 -
+        x = self.conv2d(x)
+        if self.old:
+            x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
+        else:
+            x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
+
+        # x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
         x = x.view(x.size(0), -1)
         return x
 

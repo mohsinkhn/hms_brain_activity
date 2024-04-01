@@ -67,6 +67,7 @@ class LitModel(L.LightningModule):
         mixup_alpha: float = 0.4,
         sim_mse: bool = False,
         sim_mse_alpha: float = 0.1,
+        pretrain_path: str = None,
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -75,6 +76,11 @@ class LitModel(L.LightningModule):
         self.test_step_outputs = []
         self.criterion = KLDivLossWithLogits()
         self.bce = nn.BCEWithLogitsLoss()
+        if pretrain_path is not None:
+            weights = torch.load(pretrain_path)["state_dict"]
+            # filter classifier weights
+            weights = {k: v for k, v in weights.items() if "classifier" not in k}
+            self.load_state_dict(weights, strict=False)
 
     def forward(self, x):
         return self.model(x)
@@ -327,3 +333,137 @@ def mixup(x, y, alpha=0.4):
     mixed_x = lam * x + (1 - lam) * x[index]
     y = (y + y[index]) / 2
     return mixed_x, y
+
+
+class PreTrainModel(L.LightningModule):
+    """PL Model"""
+
+    def __init__(
+        self,
+        net: nn.Module,
+        optimizer: Any,
+        scheduler: torch.optim.lr_scheduler,
+        scheduler_interval: str,
+        differential_lr: bool,
+        compile: bool,
+        val_output_dir: str = "./data",
+        test_output_dir: str = "./data",
+        means: list = [0.157, 0.142, 0.103, 0.065, 0.114, 0.412],
+        use_sample_weights: bool = True,
+        finetune: bool = False,
+        mixup: bool = False,
+        mixup_alpha: float = 0.4,
+        sim_mse: bool = False,
+        sim_mse_alpha: float = 0.0,
+    ):
+        super().__init__()
+        self.save_hyperparameters(logger=False)
+        self.model = net
+        self.validation_step_outputs = []
+        self.test_step_outputs = []
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, x):
+        return self.model(x)
+
+    def step(self, batch):
+        x, y = batch["data"], batch["targets"]
+        if self.hparams.use_sample_weights:
+            sample_weight = batch.get("sample_weight", None)
+            if (self.hparams.finetune) & (sample_weight is not None) and (
+                self.current_epoch == self.trainer.max_epochs - 1
+            ):
+                print("droping low confidence samples")
+                sample_weight[sample_weight < 7] = 0.1
+        else:
+            sample_weight = None
+
+        if self.training and (self.hparams.mixup or self.hparams.sim_mse):
+            x = self.model.forward_features(x)
+            if self.hparams.sim_mse:
+                feats = x / x.norm(dim=1, keepdim=True)
+                feats_sim = feats @ feats.T  # b x b
+                targets_sim = y @ y.T  # b x b
+                loss_sim = self.bce(feats_sim, targets_sim)
+                logits = self.model.classifier(x)
+                loss = (
+                    self.criterion(logits, y, sample_weight=sample_weight)
+                    + self.hparams.sim_mse_alpha * loss_sim
+                )
+                return loss, logits, y
+            else:
+                x, y = mixup(x, y, self.hparams.mixup_alpha)
+                logits = self.model.classifier(x)
+        else:
+            logits = self.forward(x)
+        loss = self.criterion(logits, y.view(-1))
+        return loss, logits, y
+
+    def training_step(self, batch, batch_idx):
+        loss, _, _ = self.step(batch)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        loss, preds, y = self.step(batch)
+        # self.post_process_validation_step(loss, preds, y, batch, batch_idx)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val/score", loss, on_step=False, on_epoch=True, prog_bar=True)
+
+    def setup(self, stage: str) -> None:
+        """Lightning hook that is called at the beginning of fit (train + validate), validate,
+        test, or predict.
+
+        This is a good hook when you need to build models dynamically or adjust something about
+        them. This hook is called on every process when using DDP.
+
+        :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
+        """
+        if self.hparams.compile and stage == "fit":
+            self.model = torch.compile(self.model)
+
+    def configure_optimizers(self) -> Dict[str, Any]:
+        """Choose what optimizers and learning-rate schedulers to use in your optimization.
+        Normally you'd need one. But in the case of GANs or similar you might have multiple.
+
+        Examples:
+            https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
+
+        :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
+        """
+        # if "conv2d" not in self.model.__class__.__name__.lower():
+        #     optimizer = self.hparams.optimizer(params=self.model.parameters())
+        # else:
+        if self.hparams.differential_lr:
+            conv2d_params = [
+                kv[1] for kv in self.model.named_parameters() if ".conv2d" in kv[0]
+            ]
+            other_params = [
+                kv[1] for kv in self.model.named_parameters() if ".conv2d" not in kv[0]
+            ]
+            optimizer = self.hparams.optimizer(
+                [
+                    {
+                        "params": conv2d_params,
+                        "lr": self.hparams.optimizer.keywords["lr"] * 0.1,
+                        "weight_decay": self.hparams.optimizer.keywords["weight_decay"],
+                    },
+                    {
+                        "params": other_params,
+                    },
+                ]
+            )
+        else:
+            optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
+        if self.hparams.scheduler is not None:
+            scheduler = self.hparams.scheduler(optimizer=optimizer)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "monitor": "val/loss",
+                    "interval": self.hparams.scheduler_interval,
+                    "frequency": 1,
+                },
+            }
+        return {"optimizer": optimizer}

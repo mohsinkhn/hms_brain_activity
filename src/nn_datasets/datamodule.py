@@ -30,6 +30,7 @@ class LitDataModule(LightningDataModule):
         low_f=0.1,
         high_f=20,
         order=4,
+        remove_edge="post",
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -175,6 +176,7 @@ class LitDataModule(LightningDataModule):
             low_f=self.hparams.low_f,
             high_f=self.hparams.high_f,
             order=self.hparams.order,
+            remove_edge=self.hparams.remove_edge,
         )
         val_dataset = eval(f"components.{self.hparams.val_dataset}")(
             df=val_df,
@@ -183,6 +185,7 @@ class LitDataModule(LightningDataModule):
             low_f=self.hparams.low_f,
             high_f=self.hparams.high_f,
             order=self.hparams.order,
+            remove_edge=self.hparams.remove_edge,
         )
 
         return train_dataset, val_dataset
@@ -201,6 +204,7 @@ class LitDataModule(LightningDataModule):
             low_f=self.hparams.low_f,
             high_f=self.hparams.high_f,
             order=self.hparams.order,
+            remove_edge=self.hparams.remove_edge,
         )
         return test_dataset
 
@@ -224,6 +228,7 @@ class PretrainDataModule(LightningDataModule):
         low_f=0.1,
         high_f=20,
         order=4,
+        remove_edge="pre",
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -344,39 +349,31 @@ class PretrainDataModule(LightningDataModule):
 
         :return: A tuple with the training and validation datasets.
         """
-        df = pl.read_csv(Path(self.hparams.data_dir) / "train.csv")
+        df = pl.read_csv(Path(self.hparams.data_dir) / "tug_seizure_train.csv")
         patient_ids = np.array(df["patient_id"].unique().to_list())
         kf = KFold(n_splits=self.hparams.num_folds, shuffle=True, random_state=786)
         train_idx, val_idx = list(kf.split(patient_ids))[self.hparams.fold_id]
         train_df = df.filter(pl.col("patient_id").is_in(patient_ids[train_idx]))
         val_df = df.filter(pl.col("patient_id").is_in(patient_ids[val_idx]))
-        if self.hparams.pseudo_label_filepath is not None:
-            pseudo_df = pl.read_csv(self.hparams.pseudo_label_filepath).select(
-                [
-                    "eeg_id",
-                    "eeg_sub_id",
-                    *[f"{target}_pred" for target in TARGET_COLS],
-                ]
-            )
-        else:
-            pseudo_df = None
         train_dataset = eval(f"components.{self.hparams.train_dataset}")(
             df=train_df,
-            data_dir=Path(self.hparams.data_dir) / "train_eegs",
-            pseudo_df=pseudo_df,
-            pseudo_weight=self.hparams.pseudo_label_weight,
+            data_dir=Path(self.hparams.data_dir) / "tug_np",
+            pseudo_df=None,
+            pseudo_weight=0,
             transforms=self.hparams.transforms,
             low_f=self.hparams.low_f,
             high_f=self.hparams.high_f,
             order=self.hparams.order,
+            remove_edge=self.hparams.remove_edge,
         )
         val_dataset = eval(f"components.{self.hparams.val_dataset}")(
             df=val_df,
-            data_dir=Path(self.hparams.data_dir) / "train_eegs",
+            data_dir=Path(self.hparams.data_dir) / "tug_np",
             transforms=None,
             low_f=self.hparams.low_f,
             high_f=self.hparams.high_f,
             order=self.hparams.order,
+            remove_edge=self.hparams.remove_edge,
         )
 
         return train_dataset, val_dataset
@@ -390,7 +387,7 @@ class PretrainDataModule(LightningDataModule):
         test_df = test_df.with_columns(pl.lit(0).alias("eeg_sub_id"))
         test_dataset = eval(f"components.{self.hparams.test_dataset}")(
             df=test_df,
-            data_dir=Path(self.hparams.test_eegs_dir) / "test_eegs",
+            data_dir=Path(self.hparams.test_eegs_dir) / "tug_np",
             transforms=None,
             low_f=self.hparams.low_f,
             high_f=self.hparams.high_f,

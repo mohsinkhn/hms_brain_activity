@@ -1,3 +1,4 @@
+from collections import defaultdict
 import random
 
 import numpy as np
@@ -5,6 +6,7 @@ from pathlib import Path
 import polars as pl
 from scipy.signal import butter, lfilter, iirnotch, filtfilt
 from torch.utils.data import Dataset
+from tqdm.auto import tqdm
 
 from src.settings import TARGET_COLS, SAMPLE_RATE, EEG_DURATION, EEG_GROUP_IDX  # noqa
 
@@ -92,6 +94,7 @@ class HMSTrain(Dataset):
         order=5,
         transforms=None,
         scale="log",
+        remove_edge="post",
     ):
         self.df = df  # .unique(subset=["eeg_id", *TARGET_COLS])
         self.df = get_sample_weights(self.df)
@@ -118,6 +121,7 @@ class HMSTrain(Dataset):
         self.order = order
         self.transforms = transforms
         self.scale = scale
+        self.remove_edge = remove_edge
 
     def __len__(self):
         return len(self.unq_ids)
@@ -133,7 +137,13 @@ class HMSTrain(Dataset):
         # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
         eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
         data = load_eeg_data(
-            self.data_dir, eeg_id, eeg_sub_id, self.low_f, self.high_f, self.order
+            self.data_dir,
+            eeg_id,
+            eeg_sub_id,
+            self.low_f,
+            self.high_f,
+            self.order,
+            self.remove_edge,
         )
         if self.transforms is not None:
             for tfm in self.transforms:
@@ -156,15 +166,28 @@ class HMSTrain(Dataset):
 
 class HMSVal(Dataset):
     def __init__(
-        self, df, data_dir, low_f=0.5, high_f=50, order=5, transforms=None, scale="log"
+        self,
+        df,
+        data_dir,
+        low_f=0.5,
+        high_f=50,
+        order=5,
+        transforms=None,
+        scale="log",
+        remove_edge="post",
     ):
         self.df = df
+        self.df = sample_sub_ids(self.df)
         self.data_dir = data_dir
         self.low_f = low_f
         self.high_f = high_f
         self.order = order
         self.df = norm_target_cols(self.df)
         self.scale = scale
+        self.remove_edge = remove_edge
+        self.eegs, self.eeg_mapping = load_eegs(
+            self.df, data_dir, low_f, high_f, order, remove_edge
+        )
 
     def __len__(self):
         return len(self.df)
@@ -174,9 +197,16 @@ class HMSVal(Dataset):
         eeg_id = patient_df["eeg_id"].iloc[0]
         # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
         eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
-        data = load_eeg_data(
-            self.data_dir, eeg_id, eeg_sub_id, self.low_f, self.high_f, self.order
-        )
+        data = self.eegs[self.eeg_mapping[(eeg_id, eeg_sub_id)]]
+        # data = load_eeg_data(
+        #     self.data_dir,
+        #     eeg_id,
+        #     eeg_sub_id,
+        #     self.low_f,
+        #     self.high_f,
+        #     self.order,
+        #     self.remove_edge,
+        # )
         if self.scale == "constant":
             data = data / 100
         elif self.scale == "log":
@@ -195,7 +225,15 @@ class HMSVal(Dataset):
 
 class HMSTest(Dataset):
     def __init__(
-        self, df, data_dir, low_f=0.5, high_f=50, order=5, transforms=None, scale="log"
+        self,
+        df,
+        data_dir,
+        low_f=0.5,
+        high_f=50,
+        order=5,
+        transforms=None,
+        scale="log",
+        remove_edge="post",
     ):
         self.df = df
         self.data_dir = data_dir
@@ -203,6 +241,7 @@ class HMSTest(Dataset):
         self.high_f = high_f
         self.order = order
         self.scale = scale
+        self.remove_edge = remove_edge
 
     def __len__(self):
         return len(self.df)
@@ -212,7 +251,13 @@ class HMSTest(Dataset):
         eeg_id = patient_df["eeg_id"].iloc[0]
         eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
         data = load_eeg_data(
-            self.data_dir, eeg_id, eeg_sub_id, self.low_f, self.high_f, self.order
+            self.data_dir,
+            eeg_id,
+            eeg_sub_id,
+            self.low_f,
+            self.high_f,
+            self.order,
+            self.remove_edge,
         )
         if self.scale == "constant":
             data = data / 100
@@ -236,7 +281,9 @@ def fix_nulls(data):
     return data
 
 
-def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=40, order=5):
+def load_eeg_data(
+    data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=40, order=5, remove_edge="post"
+):
     npy_path = data_dir / f"{eeg_id}_{eeg_sub_id}.npy"
     data = np.load(npy_path)
     data = fix_nulls(data)
@@ -251,7 +298,8 @@ def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=40, order=5):
     out = butter_lowpass_filter(
         out, cutoff_freq=high_f, sampling_rate=SAMPLE_RATE, order=order
     )
-    out = out[8:-8]
+    if remove_edge == "pre":
+        out = out[8:-8]
     out = butter_highpass_filter(
         out, cutoff_freq=low_f, sampling_rate=SAMPLE_RATE, order=order
     )
@@ -259,6 +307,8 @@ def load_eeg_data(data_dir, eeg_id, eeg_sub_id, low_f=0.5, high_f=40, order=5):
     out = np.clip(out, -1000, 1000)
     # out = np.log1p(np.abs(out)) * np.sign(out)
     # out = out / 100
+    if remove_edge == "post":
+        out = out[8:-8]
     # out = out[8:-8]
 
     return out
@@ -276,10 +326,16 @@ class HMSTrainv2(Dataset):
         order=5,
         transforms=None,
         scale="log",
+        remove_edge="post",
     ):
         self.df = df  # .unique(subset=["eeg_id", *TARGET_COLS])
+        self.df = sample_sub_ids(self.df)
+        print(self.df.shape)
         self.df = get_sample_weights(self.df)
         self.unq_ids = self.df["eeg_id"].unique().to_list()
+        self.eegs, self.eeg_mapping = load_eegs(
+            self.df, data_dir, low_f, high_f, order, remove_edge
+        )
         self.data_dir = data_dir
         if pseudo_df is not None:
             self.df = self.df.join(pseudo_df, on=["eeg_id", "eeg_sub_id"], how="left")
@@ -302,6 +358,7 @@ class HMSTrainv2(Dataset):
         self.transforms = transforms
         self.sample_ids = np.zeros_like(np.array(self.unq_ids), dtype=np.int64)
         self.scale = scale
+        self.remove_edge = remove_edge
 
     def __len__(self):
         return len(self.unq_ids)
@@ -319,9 +376,16 @@ class HMSTrainv2(Dataset):
         eeg_id = patient_df["eeg_id"].iloc[0]
         # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
         eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
-        data = load_eeg_data(
-            self.data_dir, eeg_id, eeg_sub_id, self.low_f, self.high_f, self.order
-        )
+        data = self.eegs[self.eeg_mapping[(eeg_id, eeg_sub_id)]]
+        # data = load_eeg_data(
+        #     self.data_dir,
+        #     eeg_id,
+        #     eeg_sub_id,
+        #     self.low_f,
+        #     self.high_f,
+        #     self.order,
+        #     self.remove_edge,
+        # )
         if self.transforms is not None:
             for tfm in self.transforms:
                 data = tfm(data)
@@ -353,16 +417,33 @@ class HMSTrainPre(Dataset):
         order=5,
         transforms=None,
         scale="log",
+        remove_edge="pre",
     ):
         self.df = df  # .unique(subset=["eeg_id", *TARGET_COLS])
-        # self.unq_ids = self.df["eeg_id"].unique().to_list()
+        self.unq_ids = self.df["eeg_id"].unique().to_list()
         self.data_dir = data_dir
-        self.df = self.df
+        self.df = self.df.with_columns(
+            pl.col("target").map_dict(
+                {
+                    "bckg": 0,
+                    "tcsz": 1,
+                    "fnsz": 2,
+                    "cpsz": 3,
+                    "gnsz": 4,
+                    "absz": 5,
+                    "seiz": 6,
+                    "tnsz": 7,
+                    "spsz": 8,
+                    "mysz": 9,
+                }
+            )
+        )
         self.low_f = low_f
         self.high_f = high_f
         self.order = order
         self.transforms = transforms
         self.scale = scale
+        self.remove_edge = remove_edge
 
     def __len__(self):
         return len(self.unq_ids)
@@ -370,19 +451,23 @@ class HMSTrainPre(Dataset):
     def __getitem__(self, idx):
         unq_id = self.unq_ids[idx]
         patient_df = self.df.filter(pl.col("eeg_id") == unq_id)
-        sample_idx = int(self.sample_ids[idx])
-        self.sample_ids[idx] = (sample_idx + 19) % len(patient_df)
-        # idx = random.choices(
-        #     range(len(patient_df)),  # weights=patient_df["sample_weight"].to_numpy()
-        # )[0]
+        idx = random.choices(
+            range(len(patient_df)),  # weights=patient_df["sample_weight"].to_numpy()
+        )[0]
 
-        patient_df = patient_df[sample_idx].to_pandas()
+        patient_df = patient_df[idx].to_pandas()
         eeg_id = patient_df["eeg_id"].iloc[0]
         # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
         eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
         data = (
             load_eeg_data(
-                self.data_dir, eeg_id, eeg_sub_id, self.low_f, self.high_f, self.order
+                self.data_dir,
+                eeg_id,
+                eeg_sub_id,
+                self.low_f,
+                self.high_f,
+                self.order,
+                self.remove_edge,
             )
             * 10**6
         )
@@ -393,11 +478,46 @@ class HMSTrainPre(Dataset):
             data = data / 100
         elif self.scale == "log":
             data = np.log1p(np.abs(data)) * np.sign(data)
+        new_data = np.zeros(shape=(9984, 16), dtype=np.float32)
+        new_data[: data.shape[0], :] = data[:]
+        data = new_data[:]
         targets = patient_df["target"].values.flatten()
         # targets = targets / targets.sum()
         return {
             "data": data.astype(np.float32),
-            "targets": targets.astype(np.float32),
-            "eeg_id": eeg_id.astype(np.int32),
-            "eeg_sub_id": eeg_sub_id.astype(np.int32),
+            "targets": targets.astype(int),
+            # "eeg_id": eeg_id.astype(np.int32),
+            # "eeg_sub_id": eeg_sub_id.astype(np.int32),
         }
+
+
+def load_eegs(df, data_dir, low_f=0.5, high_f=40, order=5, remove_edge="post"):
+    data = np.zeros((len(df), 9984, 16), dtype=np.float32)
+    mapping = defaultdict(tuple)
+    for i, row in tqdm(enumerate(df.iter_rows(named=True))):
+        eeg_id = row["eeg_id"]
+        eeg_sub_id = row["eeg_sub_id"]
+        data[i] = load_eeg_data(
+            data_dir, eeg_id, eeg_sub_id, low_f, high_f, order, remove_edge
+        )
+        mapping[i] = (eeg_id, eeg_sub_id)
+    rev_mapping = {v: k for k, v in mapping.items()}
+    return data, rev_mapping
+
+
+def sample_sub_ids(df: pl.DataFrame, n_samples: int = 10):
+    # Take maximum 20 samples from each eeg_id
+    df = (
+        df.with_columns(
+            pl.col("eeg_sub_id").max().over("eeg_id").alias("max_sub_id"),
+        )
+        .with_columns(
+            pl.when(pl.col("max_sub_id") >= n_samples)
+            .then(pl.col("eeg_sub_id") / pl.col("max_sub_id") * n_samples)
+            .otherwise(pl.col("eeg_sub_id"))
+            .alias("sampled_sub_id")
+            .round()
+        )
+        .unique(subset=["eeg_id", "sampled_sub_id"])
+    )
+    return df

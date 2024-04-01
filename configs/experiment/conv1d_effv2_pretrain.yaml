@@ -19,26 +19,26 @@ tags: ["conv1d", "1d"]
 
 seed: 12345786
 
-version: "effb3_sim_loss"
+version: "tug_pretrain"
 trainer:
-  min_epochs: 10
-  max_epochs: 20
+  min_epochs: 30
+  max_epochs: 30
   gradient_clip_val: 0.5
   precision: 16
 
 data:
-  _target_: src.nn_datasets.datamodule.LitDataModule
+  _target_: src.nn_datasets.datamodule.PretrainDataModule
   data_dir: ${paths.data_dir}
-  train_dataset: eegdataset.HMSTrainv2
-  val_dataset: eegdataset.HMSVal
-  test_dataset: eegdataset.HMSTest
+  train_dataset: eegdataset.HMSTrainPre
+  val_dataset: eegdataset.HMSTrainPre
+  test_dataset: eegdataset.HMSTrainPre
   test_eegs_dir: "./data"
   batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-  num_folds: 5
-  fold_id: 4
+  num_folds: 10
+  fold_id: 0
   num_workers: 0
   low_f: 0.2
-  high_f: 30
+  high_f: 40
   order: 4
   transforms:
     - _target_: src.nn_augs.eeg_transforms.SideSwap
@@ -75,7 +75,7 @@ hydra:
     dir: ${paths.log_dir}/${task_name}/runs/${version}/${data.fold_id}
 
 model:
-  _target_: src.nn_models.litmodels.LitModel
+  _target_: src.nn_models.litmodels.PreTrainModel
   optimizer:
     _target_: timm.optim.MADGRAD
     _partial_: true
@@ -94,7 +94,7 @@ model:
   net:
     _target_: src.nn_models.conv1dmodels.InceptionConv1DModel
     in_channels: 16
-    out_channels: 6
+    out_channels: 10
     features:
       - 8
       - 16
@@ -117,10 +117,10 @@ model:
   differential_lr: false
   compile: false
   val_output_dir: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}
-  use_sample_weights: True
+  use_sample_weights: false
   mixup: false
   mixup_alpha: 0.8
-  sim_mse: true
+  sim_mse: false
   sim_mse_alpha: 0.1
 
 

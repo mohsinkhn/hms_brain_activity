@@ -33,7 +33,7 @@ data:
   val_dataset: eegdataset.HMSVal
   test_dataset: eegdataset.HMSTest
   test_eegs_dir: "./data"
-  pseudo_label_filepath: /home/mohsin/testing/hms_benchmark/logs/train/val_outputs/effb3_sim_loss/val_preds.csv
+  pseudo_label_filepath: /home/mohsin/testing/hms_benchmark/logs/train/val_outputs/ensemble/val_preds.csv
   pseudo_label_weight: 20
   batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
   num_folds: 5
@@ -70,6 +70,7 @@ data:
       p: 0.3
       max_shift: 10
   pin_memory: false
+  remove_edge: 'pre'
 
 hydra:
   run:
