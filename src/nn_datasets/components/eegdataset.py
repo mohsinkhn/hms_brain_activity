@@ -147,7 +147,7 @@ class HMSTrain(Dataset):
         )
         if self.transforms is not None:
             for tfm in self.transforms:
-                data = tfm(data)
+                data, _, _ = tfm(data)
         if self.scale == "constant":
             data = data / 100
         elif self.scale == "log":
@@ -388,7 +388,7 @@ class HMSTrainv2(Dataset):
         # )
         if self.transforms is not None:
             for tfm in self.transforms:
-                data = tfm(data)
+                data, _, _ = tfm(data)
         if self.scale == "constant":
             data = data / 100
         elif self.scale == "log":
@@ -402,6 +402,167 @@ class HMSTrainv2(Dataset):
             "sample_weight": sample_weight.astype(np.float32),
             "eeg_id": eeg_id.astype(np.int32),
             "eeg_sub_id": eeg_sub_id.astype(np.int32),
+        }
+
+
+class HMSTrainv3(Dataset):
+    def __init__(
+        self,
+        df,
+        data_dir,
+        pseudo_df=None,
+        pseudo_weight=0.5,
+        low_f=0.2,
+        high_f=50,
+        order=5,
+        transforms=None,
+        scale="log",
+        remove_edge="post",
+    ):
+        self.df = df  # .unique(subset=["eeg_id", *TARGET_COLS])
+        self.df = sample_sub_ids(self.df)
+        print(self.df.shape)
+        self.df = get_sample_weights(self.df)
+        self.unq_ids = self.df["eeg_id"].unique().to_list()
+        self.eegs, self.eeg_mapping = load_eegs(
+            self.df, data_dir, low_f, high_f, order, remove_edge
+        )
+        self.data_dir = data_dir
+        if pseudo_df is not None:
+            self.df = self.df.join(pseudo_df, on=["eeg_id", "eeg_sub_id"], how="left")
+            self.df = self.df.with_columns(
+                *[
+                    pl.when(pl.col("total_votes") < 10)
+                    .then(
+                        pl.col(target)
+                        + pseudo_weight * pl.col(f"{target}_pred").fill_null(0)
+                    )
+                    .otherwise(pl.col(target))
+                    .alias(target)
+                    for target in TARGET_COLS
+                ]
+            )
+        self.df = norm_target_cols(self.df)
+        self.low_f = low_f
+        self.high_f = high_f
+        self.order = order
+        self.transforms = transforms
+        self.sample_ids = np.zeros_like(np.array(self.unq_ids), dtype=np.int64)
+        self.scale = scale
+        self.remove_edge = remove_edge
+
+    def __len__(self):
+        return len(self.unq_ids)
+
+    def __getitem__(self, idx):
+        unq_id = self.unq_ids[idx]
+        patient_df = self.df.filter(pl.col("eeg_id") == unq_id)
+        sample_idx = int(self.sample_ids[idx])
+        self.sample_ids[idx] = (sample_idx + 19) % len(patient_df)
+        # idx = random.choices(
+        #     range(len(patient_df)),  # weights=patient_df["sample_weight"].to_numpy()
+        # )[0]
+
+        patient_df = patient_df[sample_idx].to_pandas()
+        eeg_id = patient_df["eeg_id"].iloc[0]
+        # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
+        eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
+        spec_id = patient_df["spectrogram_id"].iloc[0]
+        spec_offset = patient_df["spectrogram_label_offset_seconds"].iloc[0]
+        data = self.eegs[self.eeg_mapping[(eeg_id, eeg_sub_id)]]
+        # data = load_eeg_data(
+        #     self.data_dir,
+        #     eeg_id,
+        #     eeg_sub_id,
+        #     self.low_f,
+        #     self.high_f,
+        #     self.order,
+        #     self.remove_edge,
+        # )
+        spec = load_spec_data(self.data_dir, spec_id, spec_offset)
+        targets = patient_df[TARGET_COLS].values.flatten()
+
+        if self.transforms is not None:
+            for tfm in self.transforms:
+                data, spec, targets = tfm(data, spec, targets)
+        if self.scale == "constant":
+            data = data / 100
+        elif self.scale == "log":
+            data = np.log1p(np.abs(data)) * np.sign(data)
+        # targets = targets / targets.sum()
+        sample_weight = patient_df["sample_weight"].iloc[0]
+
+        return {
+            "data": data.astype(np.float32),
+            "targets": targets.astype(np.float32),
+            "sample_weight": sample_weight.astype(np.float32),
+            "eeg_id": eeg_id.astype(np.int32),
+            "eeg_sub_id": eeg_sub_id.astype(np.int32),
+            "spec": spec.astype(np.float32),
+        }
+
+
+class HMSValv3(Dataset):
+    def __init__(
+        self,
+        df,
+        data_dir,
+        low_f=0.5,
+        high_f=50,
+        order=5,
+        transforms=None,
+        scale="log",
+        remove_edge="post",
+    ):
+        self.df = df
+        self.df = sample_sub_ids(self.df)
+        self.data_dir = data_dir
+        self.low_f = low_f
+        self.high_f = high_f
+        self.order = order
+        self.df = norm_target_cols(self.df)
+        self.scale = scale
+        self.remove_edge = remove_edge
+        self.eegs, self.eeg_mapping = load_eegs(
+            self.df, data_dir, low_f, high_f, order, remove_edge
+        )
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        patient_df = self.df[idx].to_pandas()
+        eeg_id = patient_df["eeg_id"].iloc[0]
+        # offset = patient_df["eeg_label_offset_seconds"].iloc[0]
+        eeg_sub_id = patient_df["eeg_sub_id"].iloc[0]
+        spec_id = patient_df["spectrogram_id"].iloc[0]
+        spec_offset = patient_df["spectrogram_label_offset_seconds"].iloc[0]
+        data = self.eegs[self.eeg_mapping[(eeg_id, eeg_sub_id)]]
+        # data = load_eeg_data(
+        #     self.data_dir,
+        #     eeg_id,
+        #     eeg_sub_id,
+        #     self.low_f,
+        #     self.high_f,
+        #     self.order,
+        #     self.remove_edge,
+        # )
+        if self.scale == "constant":
+            data = data / 100
+        elif self.scale == "log":
+            data = np.log1p(np.abs(data)) * np.sign(data)
+        data = data.astype(np.float32)
+        targets = patient_df[TARGET_COLS].values.flatten()
+        # targets = targets / targets.sum()
+        return {
+            "data": data.astype(np.float32),
+            "targets": targets.astype(np.float32),
+            "eeg_id": eeg_id.astype(np.int64),
+            "eeg_sub_id": eeg_sub_id.astype(np.int64),
+            "spec": load_spec_data(self.data_dir, spec_id, spec_offset).astype(
+                np.float32
+            ),
+            "num_votes": patient_df["num_votes"].iloc[0].astype(np.float32),
         }
 
 
@@ -521,3 +682,18 @@ def sample_sub_ids(df: pl.DataFrame, n_samples: int = 10):
         .unique(subset=["eeg_id", "sampled_sub_id"])
     )
     return df
+
+
+def load_spec_data(data_dir, spec_id, spec_offset):
+    npy_path = (
+        Path(str(data_dir).replace("eegs", "spectrograms")) / f"{spec_id}.parquet.npy"
+    )
+    data = np.load(npy_path)
+    data = np.nan_to_num(data, nan=0)
+    data = np.clip(data, np.exp(-4), np.exp(6))
+    start = np.searchsorted(data[:, 0, 0], spec_offset, side="right")
+    data = np.log(data[start : start + 300, 1:, :])
+    mean = data.mean()
+    std = data.std()
+    data = (data - mean) / (std + 1e-6)
+    return data

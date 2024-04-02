@@ -210,7 +210,7 @@ class InceptionConv1DModel(nn.Module):
         self.classifier = nn.Linear(self.conv2d.num_features * 2, out_channels)
         self.old = old
 
-    def forward_features(self, x):
+    def forward_features(self, x, spec_x=None):
         b, l, c = x.shape
         x = x.permute(0, 2, 1).contiguous().view(b * c, 1, l)
         x = self.conv1d_encoder(x)
@@ -225,8 +225,8 @@ class InceptionConv1DModel(nn.Module):
         x = x.view(x.size(0), -1)
         return x
 
-    def forward(self, x):
-        x = self.forward_features(x)
+    def forward(self, x, spec_x=None):
+        x = self.forward_features(x, spec_x=None)
         x = self.classifier(x)
         return x
 
@@ -286,7 +286,7 @@ class InceptionStackedModel(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d((1, 1))
         self.classifier = nn.Linear(self.conv2d.num_features * 2, out_channels)
 
-    def forward_features(self, x):
+    def forward_features(self, x, spec_x=None):
         b, l, c = x.shape
         x = x.permute(0, 2, 1).contiguous().view(b * c, 1, l)
         x = self.conv1d_encoder(x)
@@ -297,8 +297,8 @@ class InceptionStackedModel(nn.Module):
         x = x.view(x.size(0), -1)
         return x
 
-    def forward(self, x):
-        x = self.forward_features(x)
+    def forward(self, x, spec_x=None):
+        x = self.forward_features(x, spec_x)
         x = self.classifier(x)
         return x
 
@@ -333,7 +333,7 @@ class InceptionSpecModel(nn.Module):
             model_name,
             pretrained=pretrained,
             num_classes=0,
-            in_chans=in_channels,
+            in_chans=in_channels + 4,
             global_pool="",
         )
         # self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
@@ -349,12 +349,14 @@ class InceptionSpecModel(nn.Module):
         self.classifier = nn.Linear(self.conv2d.num_features * 2, out_channels)
         self.old = old
 
-    def forward_features(self, x):
+    def forward_features(self, x, spec_x):
         b, l, c = x.shape
         x = x.permute(0, 2, 1).contiguous().view(b * c, 1, l)
         x = self.conv1d_encoder(x)
         x = x.view(b, c, x.shape[1], x.shape[2])  # b, 16, 128, 312 -
+        x = torch.cat([x[:, :, :, 6:-6], spec_x], dim=1)
         x = self.conv2d(x)
+
         if self.old:
             x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
         else:
@@ -364,7 +366,7 @@ class InceptionSpecModel(nn.Module):
         x = x.view(x.size(0), -1)
         return x
 
-    def forward(self, x):
-        x = self.forward_features(x)
+    def forward(self, x, spec_x):
+        x = self.forward_features(x, spec_x=spec_x)
         x = self.classifier(x)
         return x

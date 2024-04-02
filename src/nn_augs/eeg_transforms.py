@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from scipy.fft import fft, ifft
 from sklearn.utils import check_random_state
+from src.nn_datasets.components.eegdataset import butter_bandpass_filter
 
 
 def _new_random_fft_phase_odd(c, n, random_state):
@@ -79,9 +80,11 @@ class SideSwap(object):
     def __init__(self, p: float = 0.5):
         self.p = p
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
-            return sample[
+            sample = sample[
                 :,
                 [
                     8,
@@ -102,27 +105,36 @@ class SideSwap(object):
                     7,
                 ],
             ]
-        return sample
+            if spec is not None:
+
+                spec = spec[:, :, [1, 0, 3, 2]]
+        return sample, spec, targets
 
 
 class HorizontalFlip(object):
     def __init__(self, p: float = 0.5):
         self.p = p
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
-            return sample[::-1]
-        return sample
+            sample = sample[::-1]
+            if spec is not None:
+                spec = spec[::-1, :, :]
+        return sample, spec, targets
 
 
 class SignFlip(object):
     def __init__(self, p: float = 0.5):
         self.p = p
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
-            return sample * -1
-        return sample
+            sample = sample * -1
+        return sample, spec, targets
 
 
 class Stretch(object):
@@ -130,16 +142,18 @@ class Stretch(object):
         self.p = p
         self.max_stretch = max_stretch
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
             drop_num = int(len(sample) * np.random.rand() * self.max_stretch)
             # interpolate after removing strech %
-            return np.interp(
+            sample = np.interp(
                 np.arange(0, sample.shape[0] - drop_num, 1),
                 np.arange(0, sample.shape[0], 1),
                 sample[:-drop_num],
             )
-        return sample
+        return sample, spec, targets
 
 
 class EdgeMasking(object):
@@ -147,15 +161,16 @@ class EdgeMasking(object):
         self.p = p
         self.max_mask = max_mask
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
             mask_num = int(len(sample) * np.random.rand() * self.max_mask)
             if np.random.rand() < 0.5:
                 sample[-mask_num:] = 0
             else:
                 sample[:mask_num] = 0
-            return sample
-        return sample
+        return sample, spec, targets
 
 
 class Roll(object):
@@ -163,11 +178,13 @@ class Roll(object):
         self.p = p
         self.max_roll = max_roll
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
             roll_num = int(len(sample) * np.random.rand() * self.max_roll)
-            return np.roll(sample, roll_num)
-        return sample
+            sample = np.roll(sample, roll_num)
+        return sample, spec, targets
 
 
 class AmplitudeChange(object):
@@ -175,11 +192,15 @@ class AmplitudeChange(object):
         self.p = p
         self.max_zoom = max_zoom
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
             zoom = 1 + (np.random.rand() - 0.5) * self.max_zoom
-            return sample * zoom
-        return sample
+            sample = sample * zoom
+            if spec is not None:
+                spec = spec * zoom
+        return sample, spec, targets
 
 
 class GaussianNoise(object):
@@ -187,11 +208,16 @@ class GaussianNoise(object):
         self.p = p
         self.max_noise = max_noise
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
             noise = np.random.randn(*sample.shape) * self.max_noise
-            return sample + noise * sample
-        return sample
+            sample = sample + noise * sample
+            if spec is not None:
+                noise = np.random.randn(*spec.shape) * self.max_noise
+                spec = spec + noise * spec
+        return sample, spec, targets
 
 
 class FTSurrogate(object):
@@ -199,24 +225,28 @@ class FTSurrogate(object):
         self.p = p
         self.phase_noise_magnitude = phase_noise_magnitude
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
-            return ft_surrogate(
+            sample = ft_surrogate(
                 sample,
                 self.phase_noise_magnitude,
                 channel_indep=False,
                 random_state=None,
             )
-        return sample
+        return sample, spec, targets
 
 
 class NeighborSwap(object):
     def __init__(self, p: float = 0.5):
         self.p = p
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
-            return sample[
+            sample = sample[
                 :,
                 [
                     1,
@@ -237,7 +267,9 @@ class NeighborSwap(object):
                     14,
                 ],
             ]
-        return sample
+            if spec is not None:
+                spec = spec[:, :, [2, 3, 0, 1]]
+        return sample, spec, targets
 
 
 class TimeMask(object):
@@ -245,13 +277,19 @@ class TimeMask(object):
         self.p = p
         self.max_mask = max_mask
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
             mask_num = int(len(sample) * np.random.rand() * self.max_mask)
             mask_start = int(len(sample) * np.random.rand())
             sample[mask_start : mask_start + mask_num] = 0
-            return sample
-        return sample
+            if spec is not None:
+                mask_pct = 0.1 * np.random.rand()
+                mask_len = int(len(spec) * mask_pct)
+                mask_start = int((len(spec) - mask_len) * np.random.rand())
+                spec[mask_start : mask_start + mask_len] = 0
+        return sample, spec, targets
 
 
 class ChannelMask(object):
@@ -259,12 +297,16 @@ class ChannelMask(object):
         self.p = p
         self.mask_num = mask_num
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
             mask_start = int(len(sample) * np.random.rand())
             sample[:, mask_start : mask_start + self.mask_num] = 0
-            return sample
-        return sample
+            if spec is not None:
+                ch = np.random.choice(spec.shape[2], 1, replace=False)
+                spec[:, :, ch] = 0
+        return sample, spec, targets
 
 
 class MeanShift(object):
@@ -272,8 +314,47 @@ class MeanShift(object):
         self.p = p
         self.max_shift = max_shift
 
-    def __call__(self, sample: np.ndarray) -> np.ndarray:
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
         if np.random.rand() < self.p:
             shift = (np.random.rand() - 0.5) * self.max_shift
-            return sample + shift
-        return sample
+            sample = sample + shift
+        return sample, spec, targets
+
+
+class TargetNoise(object):
+    def __init__(self, p: float = 0.5, max_noise: int = 0.2):
+        self.p = p
+        self.max_noise = max_noise
+
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
+        if np.random.rand() < self.p:
+            exp = 1 + (np.random.rand() - 0.5) * self.max_noise * 2
+            targets = targets**exp
+            targets = targets / targets.sum()
+        return sample, spec, targets
+
+
+class FrequencyMask(object):
+    def __init__(self, p: float = 0.5, max_mask: int = 0.05):
+        self.p = p
+        self.max_mask = max_mask
+
+    def __call__(
+        self, sample: np.ndarray, spec: np.ndarray = None, targets: np.ndarray = None
+    ) -> np.ndarray:
+        if np.random.rand() < self.p:
+            start = np.random.randint(10, 15)
+            end = start + 5
+            # bandpass filter
+            sample = butter_bandpass_filter(sample, start, end, 200, 4)
+            if spec is not None:
+                mask_len = self.max_mask * np.random.rand() * spec.shape[1]
+                start = np.random.randint(
+                    int(0.5 * spec.shape[1]), int(0.75 * spec.shape[1])
+                )
+                spec[:, start : start + int(mask_len)] = 0
+        return sample, spec, targets

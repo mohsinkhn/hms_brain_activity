@@ -82,8 +82,8 @@ class LitModel(L.LightningModule):
             weights = {k: v for k, v in weights.items() if "classifier" not in k}
             self.load_state_dict(weights, strict=False)
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, x, spec_x=None):
+        return self.model(x, spec_x=spec_x)
 
     def step(self, batch):
         x, y = batch["data"], batch["targets"]
@@ -98,7 +98,7 @@ class LitModel(L.LightningModule):
             sample_weight = None
 
         if self.training and (self.hparams.mixup or self.hparams.sim_mse):
-            x = self.model.forward_features(x)
+            x = self.model.forward_features(x, batch.get("spec", None))
             if self.hparams.sim_mse:
                 feats = x / x.norm(dim=1, keepdim=True)
                 feats_sim = feats @ feats.T  # b x b
@@ -114,7 +114,7 @@ class LitModel(L.LightningModule):
                 x, y = mixup(x, y, self.hparams.mixup_alpha)
                 logits = self.model.classifier(x)
         else:
-            logits = self.forward(x)
+            logits = self.forward(x, batch.get("spec", None))
         loss = self.criterion(logits, y, sample_weight=sample_weight)
         return loss, logits, y
 
