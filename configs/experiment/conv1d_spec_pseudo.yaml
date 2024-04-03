@@ -48,7 +48,7 @@ data:
     - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
       p: 0.3
     - _target_: src.nn_augs.eeg_transforms.SignFlip
-      p: 0.3
+      p: 0.5
     - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
       p: 0.3
       max_zoom: 0.1
@@ -67,10 +67,10 @@ data:
       p: 0.1
       mask_num: 1
     - _target_: src.nn_augs.eeg_transforms.MeanShift
-      p: 0.3
+      p: 0.5
       max_shift: 10
     - _target_: src.nn_augs.eeg_transforms.FrequencyMask
-      p: 0.2
+      p: 0.0
       max_mask: 0.05
     - _target_: src.nn_augs.eeg_transforms.TargetNoise
       p: 0.0
@@ -100,7 +100,7 @@ model:
 
   scheduler_interval: "epoch"
   net:
-    _target_: src.nn_models.conv1dmodels.InceptionConv1DModel
+    _target_: src.nn_models.conv1dmodels.InceptionSpecModel
     in_channels: 16
     out_channels: 6
     features:
@@ -118,7 +118,7 @@ model:
     model_name: "efficientnetv2_rw_t.ra2_in1k"
     use_stem_rnn: false
     use_feature_rnn: false
-    dropout: 0.02
+    dropout: 0.0
     use_bnorm: true
     bnorm: "batch"
     conv2d_stride: 2

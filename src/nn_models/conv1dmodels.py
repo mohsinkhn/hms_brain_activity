@@ -320,7 +320,7 @@ class InceptionSpecModel(nn.Module):
         conv2d_stride=2,
         old=False,
     ):
-        super(InceptionConv1DModel, self).__init__()
+        super(InceptionSpecModel, self).__init__()
         self.conv1d_encoder = Conv1DInceptionEncoder(
             1,
             features=features,
@@ -329,11 +329,14 @@ class InceptionSpecModel(nn.Module):
             use_bnorm=use_bnorm,
             bnorm=bnorm,
         )
+        self.preconv = nn.Conv2d(4, 8, 3, 1, padding=1)
+        self.bn = nn.BatchNorm2d(8)
+        self.relu = nn.SELU()
         self.conv2d = timm.create_model(
             model_name,
             pretrained=pretrained,
             num_classes=0,
-            in_chans=in_channels + 4,
+            in_chans=in_channels + 8,
             global_pool="",
         )
         # self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
@@ -354,6 +357,9 @@ class InceptionSpecModel(nn.Module):
         x = x.permute(0, 2, 1).contiguous().view(b * c, 1, l)
         x = self.conv1d_encoder(x)
         x = x.view(b, c, x.shape[1], x.shape[2])  # b, 16, 128, 312 -
+        spec_x = self.preconv(spec_x.permute(0, 3, 2, 1))
+        spec_x = self.bn(spec_x)
+        spec_x = self.relu(spec_x)
         x = torch.cat([x[:, :, :, 6:-6], spec_x], dim=1)
         x = self.conv2d(x)
 

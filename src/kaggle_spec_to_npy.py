@@ -15,6 +15,7 @@ def kaggle_spec_to_npy(filepaths, output_folder):
             np_data = df.select(cols).to_numpy()
             data.append(np_data)
         data = np.stack(data, axis=-1)
+        assert data.shape[0] >= 300
         output_path = Path(output_folder) / Path(filepath).name
         np.save(str(output_path).replace(".csv", ".npy"), data)
 

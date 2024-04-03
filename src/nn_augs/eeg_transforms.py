@@ -120,8 +120,8 @@ class HorizontalFlip(object):
     ) -> np.ndarray:
         if np.random.rand() < self.p:
             sample = sample[::-1]
-            if spec is not None:
-                spec = spec[::-1, :, :]
+            # if spec is not None:
+            #     spec = spec[::-1, :, :]
         return sample, spec, targets
 
 
@@ -214,9 +214,9 @@ class GaussianNoise(object):
         if np.random.rand() < self.p:
             noise = np.random.randn(*sample.shape) * self.max_noise
             sample = sample + noise * sample
-            if spec is not None:
-                noise = np.random.randn(*spec.shape) * self.max_noise
-                spec = spec + noise * spec
+            # if spec is not None:
+            #     noise = np.random.randn(*spec.shape) * self.max_noise
+            #     spec = spec + noise * spec
         return sample, spec, targets
 
 
@@ -267,8 +267,8 @@ class NeighborSwap(object):
                     14,
                 ],
             ]
-            if spec is not None:
-                spec = spec[:, :, [2, 3, 0, 1]]
+            # if spec is not None:
+            #     spec = spec[:, :, [2, 3, 0, 1]]
         return sample, spec, targets
 
 
@@ -284,11 +284,11 @@ class TimeMask(object):
             mask_num = int(len(sample) * np.random.rand() * self.max_mask)
             mask_start = int(len(sample) * np.random.rand())
             sample[mask_start : mask_start + mask_num] = 0
-            if spec is not None:
-                mask_pct = 0.1 * np.random.rand()
-                mask_len = int(len(spec) * mask_pct)
-                mask_start = int((len(spec) - mask_len) * np.random.rand())
-                spec[mask_start : mask_start + mask_len] = 0
+            # if spec is not None:
+            #     mask_pct = 0.1 * np.random.rand()
+            #     mask_len = int(len(spec) * mask_pct)
+            #     mask_start = int((len(spec) - mask_len) * np.random.rand())
+            #     spec[mask_start : mask_start + mask_len] = 0
         return sample, spec, targets
 
 
@@ -303,9 +303,9 @@ class ChannelMask(object):
         if np.random.rand() < self.p:
             mask_start = int(len(sample) * np.random.rand())
             sample[:, mask_start : mask_start + self.mask_num] = 0
-            if spec is not None:
-                ch = np.random.choice(spec.shape[2], 1, replace=False)
-                spec[:, :, ch] = 0
+            # if spec is not None:
+            #     ch = np.random.choice(spec.shape[2], 1, replace=False)
+            #     spec[:, :, ch] = 0
         return sample, spec, targets
 
 
@@ -348,13 +348,13 @@ class FrequencyMask(object):
     ) -> np.ndarray:
         if np.random.rand() < self.p:
             start = np.random.randint(10, 15)
-            end = start + 5
+            end = start + 2
             # bandpass filter
             sample = butter_bandpass_filter(sample, start, end, 200, 4)
-            if spec is not None:
-                mask_len = self.max_mask * np.random.rand() * spec.shape[1]
-                start = np.random.randint(
-                    int(0.5 * spec.shape[1]), int(0.75 * spec.shape[1])
-                )
-                spec[:, start : start + int(mask_len)] = 0
+            # if spec is not None:
+            #     mask_len = self.max_mask * np.random.rand() * spec.shape[1]
+            #     start = np.random.randint(
+            #         int(0.5 * spec.shape[1]), int(0.75 * spec.shape[1])
+            #     )
+            #     spec[:, start : start + int(mask_len)] = 0
         return sample, spec, targets
