@@ -62,11 +62,13 @@ class HMSTrainData(Dataset):
         preprocessor: Preprocessor,
         unq_batch: tuple = None,
         max_weight=20,
+        transforms=None,
     ):
         self.df = df
         self.preprocessor = preprocessor
         self.unq_batch = {c: i for i, c in enumerate(unq_batch)}
         self.max_weight = max_weight
+        self.transforms = transforms
 
         self.unq_ids = df[list(unq_batch.keys())].unique().rows()
         eeg_ids = df["eeg_id"].unique().to_list()
@@ -97,6 +99,8 @@ class HMSTrainData(Dataset):
         target = df_[TARGET_COLS].to_numpy()[0]
         total_votes = target.sum()
         target = target / total_votes
+
+        eeg_data, target = self.transforms(eeg_data, target)
 
         return {
             "eeg_data": eeg_data,
