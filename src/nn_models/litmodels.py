@@ -60,7 +60,6 @@ class LitModel(L.LightningModule):
         compile: bool,
         val_output_dir: str = "./data",
         test_output_dir: str = "./data",
-        means: list = [0.157, 0.142, 0.103, 0.065, 0.114, 0.412],
         use_sample_weights: bool = True,
         finetune: bool = False,
         mixup: bool = False,
@@ -86,7 +85,7 @@ class LitModel(L.LightningModule):
         return self.model(x, spec_x=spec_x)
 
     def step(self, batch):
-        x, y = batch["data"], batch["targets"]
+        x, y = batch["eeg_data"], batch["targets"]
         if self.hparams.use_sample_weights:
             sample_weight = batch.get("sample_weight", None)
             if (self.hparams.finetune) & (sample_weight is not None) and (
@@ -228,8 +227,8 @@ class LitModel(L.LightningModule):
                 "preds": preds,
                 "y": y,
                 "eeg_id": batch["eeg_id"],
-                "eeg_sub_id": batch["eeg_sub_id"],
-                "num_votes": batch["num_votes"],
+                "eeg_label_offset_seconds": batch["offset"],
+                "total_votes": batch["total_votes"],
             }
         )
 
@@ -249,10 +248,10 @@ class LitModel(L.LightningModule):
         Path(self.hparams.val_output_dir).mkdir(parents=True, exist_ok=True)
         data_df.write_csv(Path(self.hparams.val_output_dir) / "val_preds.csv")
 
-        val_score = get_comp_score(data_df.filter(pl.col("num_votes") > 3))
+        val_score = get_comp_score(data_df.filter(pl.col("total_votes") > 3))
         self.log("val/score", val_score, on_step=False, on_epoch=True, prog_bar=False)
 
-        val_score2 = get_comp_score(data_df.filter(pl.col("num_votes") > 7))
+        val_score2 = get_comp_score(data_df.filter(pl.col("total_votes") > 7))
         self.log("val/score2", val_score2, on_step=False, on_epoch=True, prog_bar=False)
 
         # table of means

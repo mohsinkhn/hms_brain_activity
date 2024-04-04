@@ -193,8 +193,10 @@ def split_data(data_dir, num_folds, fold_id):
 
 def merge_pseudo_labels(df, pseudo_label_filepath, pseudo_label_weight):
     pseudo_df = pl.read_csv(pseudo_label_filepath)
-    df = df.join(
-        pseudo_df.select(
+    df = df.with_columns(pl.col("eeg_label_offset_seconds").cast(pl.Int32)).join(
+        pseudo_df.with_columns(
+            pl.col("eeg_label_offset_seconds").cast(pl.Int32)
+        ).select(
             [
                 "eeg_id",
                 "eeg_label_offset_seconds",
