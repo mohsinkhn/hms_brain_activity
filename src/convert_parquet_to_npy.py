@@ -32,4 +32,9 @@ if __name__ == "__main__":
         else Path(args.data_dir) / "test.csv"
     )
     df = pl.read_csv(filepath)
-    convert_parquet_to_npy(df, args.data_dir, args.out_dir)
+    inp_dir = (
+        Path(args.data_dir) / "train_eegs"
+        if args.train
+        else Path(args.data_dir) / "test_eegs"
+    )
+    convert_parquet_to_npy(df, inp_dir, args.out_dir)
