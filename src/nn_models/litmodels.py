@@ -244,7 +244,7 @@ class LitModel(L.LightningModule):
         )
 
     def post_process_validation_epoch_end(self, data) -> None:
-        data_df = val_to_dataframe(data, self.hparams.means)
+        data_df = val_to_dataframe(data)
         Path(self.hparams.val_output_dir).mkdir(parents=True, exist_ok=True)
         data_df.write_csv(Path(self.hparams.val_output_dir) / "val_preds.csv")
 
@@ -297,31 +297,31 @@ class LitModel(L.LightningModule):
             .sample(8)
             .to_pandas()
         )
-        batch_x, batch_y, preds = [], [], []
-        for i, row in data_df.iterrows():
-            np_data = load_eeg_data(
-                Path("./data/train_eegs"),
-                int(row["eeg_id"]),
-                int(row["eeg_sub_id"]),
-            )
-            batch_x.append(np_data)
-            batch_y.append([row[f"{col}_true"] for col in TARGET_COLS])
-            preds.append([row[f"{col}_pred"] for col in TARGET_COLS])
-        batch_x = np.stack(batch_x)
-        batch_y = np.array(batch_y)
-        preds = np.array(preds)
-        plot_zoomed_batch(
-            batch_x,
-            batch_y,
-            preds=preds,
-            start=4000,
-            n=2000,
-            save_path=f"./val_errors/tmp.jpg",
-        )
-        wandb.log({"val/errors": wandb.Image(f"./val_errors/tmp.jpg")})
+        # batch_x, batch_y, preds = [], [], []
+        # for i, row in data_df.iterrows():
+        #     np_data = np.load(
+        #         Path("./data/train_eegs"),
+        #         int(row["eeg_id"]),
+        #         int(row["eeg_label_offset_seconds"]),
+        #     )
+        #     batch_x.append(np_data)
+        #     batch_y.append([row[f"{col}_true"] for col in TARGET_COLS])
+        #     preds.append([row[f"{col}_pred"] for col in TARGET_COLS])
+        # batch_x = np.stack(batch_x)
+        # batch_y = np.array(batch_y)
+        # preds = np.array(preds)
+        # plot_zoomed_batch(
+        #     batch_x,
+        #     batch_y,
+        #     preds=preds,
+        #     start=4000,
+        #     n=2000,
+        #     save_path=f"./val_errors/tmp.jpg",
+        # )
+        # wandb.log({"val/errors": wandb.Image(f"./val_errors/tmp.jpg")})
 
     def post_process_test_epoch_end(self, data) -> None:
-        data_df = test_to_dataframe(data, self.hparams.means)
+        data_df = test_to_dataframe(data)
         data_df.write_csv(Path(self.hparams.test_output_dir) / "submission.csv")
 
 

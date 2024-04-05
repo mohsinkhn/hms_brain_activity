@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from lightning import LightningDataModule
 import numpy as np
-import polars as pl
+import pandas as pd
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader, Dataset
 
@@ -15,8 +15,8 @@ class LitDataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: str,
-        train_dataset: Dataset,
-        val_dataset: Dataset,
+        train_dataset: Any,
+        val_dataset: Any,
         batch_size: int,
         num_workers: int,
         pin_memory: bool,
@@ -24,7 +24,7 @@ class LitDataModule(LightningDataModule):
         pseudo_label_weight: float = 10,
         num_folds: int = 5,
         fold_id: int = 0,
-        test_dataset: Optional[str] = Dataset,
+        test_dataset: Optional[Any] = None,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -174,7 +174,7 @@ class LitDataModule(LightningDataModule):
 
         :return: The test dataset.
         """
-        test_df = pl.read_csv(Path(self.hparams.data_dir) / "test.csv")
+        test_df = pd.read_csv(Path(self.hparams.data_dir) / "test.csv")
         test_dataset = self.test_dataset(
             df=test_df,
         )
@@ -182,39 +182,27 @@ class LitDataModule(LightningDataModule):
 
 
 def split_data(data_dir, num_folds, fold_id):
-    df = pl.read_csv(Path(data_dir) / "train.csv")
-    patient_ids = np.array(df["patient_id"].unique().to_list())
+    df = pd.read_csv(Path(data_dir) / "train.csv")
+    patient_ids = df["patient_id"].unique()
     kf = KFold(n_splits=num_folds, shuffle=True, random_state=786)
     train_idx, val_idx = list(kf.split(patient_ids))[fold_id]
-    train_df = df.filter(pl.col("patient_id").is_in(patient_ids[train_idx]))
-    val_df = df.filter(pl.col("patient_id").is_in(patient_ids[val_idx]))
+    train_df = df.loc[df["patient_id"].isin(patient_ids[train_idx])]
+    val_df = df.loc[df["patient_id"].isin(patient_ids[val_idx])]
     return train_df, val_df
 
 
 def merge_pseudo_labels(df, pseudo_label_filepath, pseudo_label_weight):
-    pseudo_df = pl.read_csv(pseudo_label_filepath)
-    df = df.with_columns(pl.col("eeg_label_offset_seconds").cast(pl.Int32)).join(
-        pseudo_df.with_columns(
-            pl.col("eeg_label_offset_seconds").cast(pl.Int32)
-        ).select(
-            [
-                "eeg_id",
-                "eeg_label_offset_seconds",
-                *[
-                    pl.col(f"{target}_pred") * pseudo_label_weight
-                    for target in TARGET_COLS
-                ],
-            ]
-        ),
-        on=["eeg_id", "eeg_label_offset_seconds"],
-        how="left",
-    )
-    df = df.with_column(
-        *[
-            (pl.col(target) + pl.col(f"{target}_pred")).alias(f"{target}")
-            * pseudo_label_weight
-            for target in TARGET_COLS
-        ]
-    )
-
+    pseudo_df = pd.read_csv(pseudo_label_filepath)
+    pseudo_df["eeg_label_offset_seconds"] = pseudo_df[
+        "eeg_label_offset_seconds"
+    ].astype(int)
+    pseudo_df = pseudo_df[
+        ["eeg_id", "eeg_label_offset_seconds"]
+        + [f"{target}_pred" for target in TARGET_COLS]
+    ]
+    df["eeg_label_offset_seconds"] = df["eeg_label_offset_seconds"].astype(int)
+    df = pd.merge(df, pseudo_df, on=["eeg_id", "eeg_label_offset_seconds"], how="left")
+    for target in TARGET_COLS:
+        df[f"{target}_pred"] = df[f"{target}_pred"].fillna(0)
+        df[target] = df[target] + df[f"{target}_pred"] * pseudo_label_weight
     return df

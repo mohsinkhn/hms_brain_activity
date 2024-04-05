@@ -1,16 +1,49 @@
 _target_: src.nn_datasets.datamodule.LitDataModule
 data_dir: ${paths.data_dir}
-train_dataset: eegdataset.HMSTrain
-val_dataset: eegdataset.HMSVal
-batch_size: 128 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+train_dataset:
+  _target_: src.nn_datasets.components.eegdataset_clean.HMSTrainData
+  eeg_dir: ${data.data_dir}/train_eegs
+  preprocess: ${preprocess}
+  max_weight: 20
+  unq_batch:
+    - eeg_id
+  transforms:
+    - _target_: src.nn_augs.eeg_transforms.SideSwap
+      p: 0.5
+    - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
+      p: 0.3
+    - _target_: src.nn_augs.eeg_transforms.SignFlip
+      p: 0.3
+    - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
+      p: 0.3
+      max_zoom: 0.1
+    - _target_: src.nn_augs.eeg_transforms.GaussianNoise
+      p: 0.5
+      max_noise: 0.02
+    - _target_: src.nn_augs.eeg_transforms.FTSurrogate
+      p: 0.0
+      phase_noise_magnitude: 0.05
+    - _target_: src.nn_augs.eeg_transforms.TimeMask
+      p: 0.2
+      max_mask: 0.05
+    - _target_: src.nn_augs.eeg_transforms.NeighborSwap
+      p: 0.1
+    - _target_: src.nn_augs.eeg_transforms.ChannelMask
+      p: 0.1
+      mask_num: 1
+    - _target_: src.nn_augs.eeg_transforms.MeanShift
+      p: 0.3
+      max_shift: 10
+val_dataset:
+  _target_: src.nn_datasets.components.eegdataset_clean.HMSTestData
+  eeg_dir: ${data.data_dir}/train_eegs
+  preprocess: ${preprocess}
+test_dataset:
+  _target_: src.nn_datasets.components.eegdataset_clean.HMSTestData
+  eeg_dir: ${data.data_dir}/test_eegs
+  preprocess: ${preprocess}
+batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_folds: 5
-fold_id: 0
+fold_id: 4
 num_workers: 0
 pin_memory: false
-transforms:
-  - _target_: src.nn_augs.eeg_transforms.SideSwap
-    p: 0.2
-  - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
-    p: 0.2
-  - _target_: src.nn_augs.eeg_transforms.SignFlip
-    p: 0.0

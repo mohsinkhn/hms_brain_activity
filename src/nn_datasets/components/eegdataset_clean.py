@@ -2,7 +2,7 @@ from typing import Union, Dict, Any
 
 import numpy as np
 from pathlib import Path
-import polars as pl
+import pandas as pd
 from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 
@@ -14,13 +14,18 @@ from src.utils.filtering import (
 )
 
 
+def fix_nulls(data):
+    med = np.median(data)
+    return np.nan_to_num(data, nan=0, posinf=0.0, neginf=0.0)
+
+
 class Preprocessor(object):
     def __init__(
-        self, lowcut, highcut, notch=60, order=5, scale="simple", kind="montage", fs=200
+        self, low_f, high_f, notch=60, order=5, scale="simple", kind="montage", fs=200
     ):
         self.fs = fs
-        self.lowcut = lowcut
-        self.highcut = highcut
+        self.lowcut = low_f
+        self.highcut = high_f
         self.notch = notch
         self.order = order
         self.kind = kind
@@ -28,10 +33,12 @@ class Preprocessor(object):
         self.fs = fs
 
     def __call__(self, data):
+        data = fix_nulls(data)
         data = notch_filter(data, self.fs, self.notch)
         data = butter_lowpass_filter(data, self.highcut, self.fs, self.order)
         data = data[8:-8]
-        data = butter_highpass_filter(data, self.lowcut, self.fs, self.order)
+        if self.lowcut > 0:
+            data = butter_highpass_filter(data, self.lowcut, self.fs, self.order)
         data = np.clip(data, -1024, 1024)
         if self.kind == "montage":
             data = self.montage(data)
@@ -39,7 +46,7 @@ class Preprocessor(object):
             data = self.log_scale(data)
         else:
             data = self.simple_scale(data)
-        return data
+        return np.ascontiguousarray(data)
 
     def log_scale(self, data):
         return np.log1p(np.abs(data)) * np.sign(data)
@@ -57,36 +64,41 @@ class Preprocessor(object):
 class HMSTrainData(Dataset):
     def __init__(
         self,
-        df: pl.DataFrame,
+        df: pd.DataFrame,
         eeg_dir: Union[str, Path],
         preprocessor: Preprocessor,
-        unq_batch: tuple = None,
+        unq_batch: str = "eeg_id",
         max_weight=20,
         transforms=None,
     ):
-        self.df = df
         self.preprocessor = preprocessor
-        self.unq_batch = {c: i for i, c in enumerate(unq_batch)}
+        self.unq_batch = unq_batch
         self.max_weight = max_weight
         self.transforms = transforms
 
-        self.unq_ids = df[list(unq_batch.keys())].unique().rows()
-        eeg_ids = df["eeg_id"].unique().to_list()
-        self.eegs_data = load_data(eeg_ids, eeg_dir)
+        df = df.sort_values(by=["eeg_id"] + TARGET_COLS)
+        self.egg_ids, self.offsets, self.targets = parse_dataframe(df)
+        if unq_batch == "eeg_id":
+            unq_cols = ["eeg_id"]
+        else:
+            unq_cols = ["eeg_id"] + TARGET_COLS
+
+        df["group"] = (~df[unq_cols].duplicated()).cumsum() - 1
+        df["idx"] = range(len(df))
+        self.unq_start_ids = df.groupby("group")["idx"].first().tolist()
+        self.unq_lens = df.groupby("group")["idx"].count().tolist()
+        unq_eeg_ids = df["eeg_id"].unique().tolist()
+        self.eegs_data = load_data(unq_eeg_ids, eeg_dir)
 
     def __len__(self):
-        return len(self.unq_ids)
+        return len(self.unq_start_ids)
 
-    def __getitem__(self, index) -> Dict[Any]:
-        unq_id = self.unq_ids[index]
-        df_ = self.df.filter(
-            pl.reduce(
-                lambda a, b: a & b,
-                [pl.col(c) == unq_id[i] for c, i in self.unq_batch.items()],
-            )
-        ).sample(1)
-        eeg_id = df_["eeg_id"][0]
-        offset = df_["eeg_label_offset_seconds"][0]
+    def __getitem__(self, index):
+        row_idx = self.unq_start_ids[index]
+        delta = np.random.randint(0, self.unq_lens[index])
+        row_idx += delta
+        eeg_id = self.egg_ids[row_idx]
+        offset = self.offsets[row_idx]
 
         # Get EEG data
         eeg_data = self.eegs_data[eeg_id]
@@ -96,38 +108,38 @@ class HMSTrainData(Dataset):
         eeg_data = self.preprocessor(eeg_data)
 
         # Get target
-        target = df_[TARGET_COLS].to_numpy()[0]
+        target = self.targets[row_idx]
         total_votes = target.sum()
         target = target / total_votes
 
-        eeg_data, target = self.transforms(eeg_data, target)
+        for tfm in self.transforms:
+            eeg_data, target = tfm(eeg_data, target)
 
         return {
-            "eeg_data": eeg_data,
-            "targets": target,
-            "eeg_id": eeg_id,
-            "offset": offset,
-            "sample_weight": min(self.max_weight, total_votes),
+            "eeg_data": eeg_data.astype(np.float32),
+            "targets": target.astype(np.float32),
+            "eeg_id": int(eeg_id),
+            "offset": int(offset),
+            "sample_weight": float(min(self.max_weight, total_votes)),
         }
 
 
 class HMSTestData(Dataset):
     def __init__(
-        self, df: pl.DataFrame, eeg_dir: Union[str, Path], preprocessor: Preprocessor
+        self, df: pd.DataFrame, eeg_dir: Union[str, Path], preprocessor: Preprocessor
     ):
-        self.df = df
+        self.eeg_ids, self.offsets, self.targets = parse_dataframe(df)
         self.preprocessor = preprocessor
 
-        self.eeg_ids = df["eeg_id"].unique().to_list()
-        self.eegs_data = load_data(self.eeg_ids, eeg_dir)
+        self.unq_eeg_ids = df["eeg_id"].unique().tolist()
+        self.eegs_data = load_data(self.unq_eeg_ids, eeg_dir)
 
     def __len__(self):
-        return len(self.df)
+        return len(self.eeg_ids)
 
-    def __getitem__(self, index) -> Dict[Any]:
-        df_ = self.df[index]
-        eeg_id = df_["eeg_id"][0]
-        offset = df_["eeg_label_offset_seconds"][0]
+    def __getitem__(self, index):
+        eeg_id = self.eeg_ids[index]
+        offset = self.offsets[index]
 
         # Get EEG data
         eeg_data = self.eegs_data[eeg_id]
@@ -136,26 +148,36 @@ class HMSTestData(Dataset):
         ]
         eeg_data = self.preprocessor(eeg_data)
 
-        if TARGET_COLS[0] in df_.columns:
-            target = df_[TARGET_COLS].to_numpy()[0]
-            total_votes = target.sum()
-            target = target / total_votes
-        else:
-            target = np.zeros((6,))
+        target = self.targets[index]
+        total_votes = target.sum()
+        if total_votes == 0:
             total_votes = 1
+            target = target + 1
+        target = target / total_votes
 
         return {
-            "eeg_data": eeg_data,
-            "eeg_id": eeg_id,
-            "offset": offset,
-            "targets": target,
-            "total_votes": total_votes,
+            "eeg_data": eeg_data.astype(np.float32),
+            "targets": target.astype(np.float32),
+            "eeg_id": int(eeg_id),
+            "offset": int(offset),
+            "total_votes": int(total_votes),
         }
 
 
-def load_data(self, eeg_ids, eeg_dir):
+def load_data(eeg_ids, eeg_dir):
     eegs_data = {}
-    for eeg_id in tqdm(self.eeg_ids):
-        eeg_data = np.load(eeg_dir / f"{eeg_id}.npy")
+    for eeg_id in tqdm(eeg_ids):
+        eeg_data = np.load(Path(eeg_dir) / f"{eeg_id}.npy")
         eegs_data[eeg_id] = eeg_data
     return eegs_data
+
+
+def parse_dataframe(df):
+    eeg_ids = df["eeg_id"].astype(int).tolist()
+    if "eeg_label_offset_seconds" not in df.columns:
+        df["eeg_label_offset_seconds"] = 0
+    offsets = df["eeg_label_offset_seconds"].astype(int).tolist()
+    if TARGET_COLS[0] not in df.columns:
+        df[TARGET_COLS] = 1
+    targets = df[TARGET_COLS].astype(np.float32).values
+    return eeg_ids, offsets, targets

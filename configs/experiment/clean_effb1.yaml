@@ -9,6 +9,7 @@ defaults:
   - override /model: 
   - override /hydra: default
   - override /callbacks: default
+  - override /paths: default
 
 
 
@@ -20,18 +21,24 @@ tags: ["clean", "1d"]
 seed: 12345786
 
 version: "effb1_clean"
+
+paths:
+  root_dir: "/mnt/mohsin/kaggle/hms_brain_activity"
+  data_dir: ${paths.root_dir}/data/
+  log_dir: ${paths.root_dir}/logs/
+
 trainer:
   min_epochs: 10
-  max_epochs: 16
+  max_epochs: 20
   gradient_clip_val: 0.5
-  precision: 16
+  precision: 16-mixed
 
 preprocess:
-  _target_: src.nn_datasets.components.eegdataset_clean.Preprocess
-  low_f: 0.2
-  high_f: 30
+  _target_: src.nn_datasets.components.eegdataset_clean.Preprocessor
+  low_f: 0.1
+  high_f: 40
   order: 4
-  scale: simple
+  scale: log
   kind: montage
   notch: 60
 
@@ -40,8 +47,9 @@ data:
   data_dir: ${paths.data_dir}
   train_dataset:
     _target_: src.nn_datasets.components.eegdataset_clean.HMSTrainData
+    _partial_: true
     eeg_dir: ${data.data_dir}/train_eegs
-    preprocess: ${preprocess}
+    preprocessor: ${preprocess}
     max_weight: 20
     unq_batch:
       - eeg_id
@@ -70,21 +78,23 @@ data:
         p: 0.1
         mask_num: 1
       - _target_: src.nn_augs.eeg_transforms.MeanShift
-        p: 0.3
-        max_shift: 10
+        p: 0.2
+        max_shift: 0.02
   val_dataset:
     _target_: src.nn_datasets.components.eegdataset_clean.HMSTestData
+    _partial_: true
     eeg_dir: ${data.data_dir}/train_eegs
-    preprocess: ${preprocess}
+    preprocessor: ${preprocess}
   test_dataset:
     _target_: src.nn_datasets.components.eegdataset_clean.HMSTestData
+    _partial_: true
     eeg_dir: ${data.data_dir}/test_eegs
-    preprocess: ${preprocess}
+    preprocessor: ${preprocess}
   batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
   num_folds: 5
   fold_id: 4
-  num_workers: 0
-  pin_memory: false
+  num_workers: 24
+  pin_memory: true
 
 hydra:
   run:

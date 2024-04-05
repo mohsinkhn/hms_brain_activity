@@ -8,16 +8,19 @@ from tqdm.auto import tqdm
 from src.settings import TARGET_COLS, SAMPLE_RATE, EEG_DURATION  # noqa
 
 
-def convert_parquet_to_npy(df, data_dir, out_dir):
+def convert_parquet_to_npy(df, data_dir, out_dir, sub_dir):
     """Convert the parquet data to numpy format.
 
     :param df: The dataframe with the eeg ids data.
     """
     df_ = df.unique(subset=["eeg_id"])
+    (Path(out_dir) / sub_dir).mkdir(parents=True, exist_ok=True)
     for i in tqdm(range(len(df_))):
         eeg_id = df_["eeg_id"][i]
-        eeg_data = pl.read_parquet(Path(data_dir) / f"{eeg_id}.parquet").to_numpy()
-        np.save(Path(out_dir) / f"{eeg_id}.npy", eeg_data)
+        eeg_data = pl.read_parquet(
+            Path(data_dir) / sub_dir / f"{eeg_id}.parquet"
+        ).to_numpy()
+        np.save(Path(out_dir) / sub_dir / f"{eeg_id}.npy", eeg_data)
 
 
 if __name__ == "__main__":
@@ -32,9 +35,5 @@ if __name__ == "__main__":
         else Path(args.data_dir) / "test.csv"
     )
     df = pl.read_csv(filepath)
-    inp_dir = (
-        Path(args.data_dir) / "train_eegs"
-        if args.train
-        else Path(args.data_dir) / "test_eegs"
-    )
-    convert_parquet_to_npy(df, inp_dir, args.out_dir)
+    sub_dir = "train_eegs" if args.train else "test_eegs"
+    convert_parquet_to_npy(df, args.data_dir, args.out_dir, sub_dir)
