@@ -71,7 +71,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Starting training!")
         trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
 
-    train_metrics = trainer.callback_metrics
+    train_metrics = {"val/score": trainer.checkpoint_callback.best_model_score}
 
     if cfg.get("test"):
         log.info("Starting testing!")
@@ -85,9 +85,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     test_metrics = trainer.callback_metrics
 
     # merge train and test metrics
-    metric_dict = {**train_metrics, **test_metrics}
+    # metric_dict = {**train_metrics, **test_metrics}
 
-    return metric_dict, object_dict
+    return train_metrics, object_dict
 
 
 @hydra.main(version_base="1.3", config_path="./configs", config_name="train.yaml")

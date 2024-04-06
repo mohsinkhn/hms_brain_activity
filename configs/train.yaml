@@ -58,7 +58,7 @@ preprocess:
   _target_: src.nn_datasets.components.eegdataset_clean.Preprocessor
   low_f: 0.1
   high_f: 40
-  order: 5
-  scale: log
+  order: 4
+  scale: simple
   kind: montage
   notch: 60

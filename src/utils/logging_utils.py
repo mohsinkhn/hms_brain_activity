@@ -51,6 +51,7 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams["tags"] = cfg.get("tags")
     hparams["ckpt_path"] = cfg.get("ckpt_path")
     hparams["seed"] = cfg.get("seed")
+    hparams["preprocess"] = cfg.get("preprocess")
 
     # send hparams to all loggers
     for logger in trainer.loggers:

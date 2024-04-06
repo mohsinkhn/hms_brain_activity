@@ -35,10 +35,10 @@ trainer:
 
 preprocess:
   _target_: src.nn_datasets.components.eegdataset_clean.Preprocessor
-  low_f: 0.1
+  low_f: 0.0
   high_f: 40
   order: 4
-  scale: log
+  scale: simple
   kind: montage
   notch: 60
 
