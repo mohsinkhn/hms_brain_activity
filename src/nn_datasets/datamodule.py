@@ -193,6 +193,7 @@ def split_data(data_dir, num_folds, fold_id):
 
 def merge_pseudo_labels(df, pseudo_label_filepath, pseudo_label_weight):
     pseudo_df = pd.read_csv(pseudo_label_filepath)
+    pseudo_df = pseudo_df.loc[pseudo_df["total_votes"] < 20]
     pseudo_df["eeg_label_offset_seconds"] = pseudo_df[
         "eeg_label_offset_seconds"
     ].astype(int)
@@ -201,7 +202,14 @@ def merge_pseudo_labels(df, pseudo_label_filepath, pseudo_label_weight):
         + [f"{target}_pred" for target in TARGET_COLS]
     ]
     df["eeg_label_offset_seconds"] = df["eeg_label_offset_seconds"].astype(int)
-    df = pd.merge(df, pseudo_df, on=["eeg_id", "eeg_label_offset_seconds"], how="left")
+    print(df.shape, pseudo_df.shape)
+    df = pd.merge(
+        df,
+        pseudo_df,
+        on=["eeg_id", "eeg_label_offset_seconds"],
+        how="left",
+    )
+    print(df.shape)
     for target in TARGET_COLS:
         df[f"{target}_pred"] = df[f"{target}_pred"].fillna(0)
         df[target] = df[target] + df[f"{target}_pred"] * pseudo_label_weight

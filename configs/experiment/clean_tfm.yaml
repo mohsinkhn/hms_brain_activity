@@ -20,7 +20,7 @@ tags: ["clean", "1d"]
 
 seed: 12345786
 
-version: "effb1_clean"
+version: "tfm_clean"
 
 paths:
   root_dir: "/mnt/mohsin/kaggle/hms_brain_activity"
@@ -35,8 +35,8 @@ trainer:
 
 preprocess:
   _target_: src.nn_datasets.components.eegdataset_clean.Preprocessor
-  low_f: 0.1
-  high_f: 40
+  low_f: 0.0
+  high_f: 30
   order: 4
   scale: simple
   kind: montage
@@ -55,17 +55,17 @@ data:
       - eeg_id
     transforms:
       - _target_: src.nn_augs.eeg_transforms.SideSwap
-        p: 0.5
-      - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
-        p: 0.5
-      - _target_: src.nn_augs.eeg_transforms.SignFlip
-        p: 0.5
-      - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
         p: 0.4
+      - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
+        p: 0.4
+      - _target_: src.nn_augs.eeg_transforms.SignFlip
+        p: 0.4
+      - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
+        p: 0.3
         max_zoom: 0.1
       - _target_: src.nn_augs.eeg_transforms.GaussianNoise
-        p: 0.0
-        max_noise: 0.02
+        p: 0.3
+        max_noise: 0.05
       - _target_: src.nn_augs.eeg_transforms.FTSurrogate
         p: 0.0
         phase_noise_magnitude: 0.05
@@ -73,12 +73,12 @@ data:
         p: 0.2
         max_mask: 0.05
       - _target_: src.nn_augs.eeg_transforms.NeighborSwap
-        p: 0.1
+        p: 0.2
       - _target_: src.nn_augs.eeg_transforms.ChannelMask
-        p: 0.1
+        p: 0.2
         mask_num: 1
       - _target_: src.nn_augs.eeg_transforms.MeanShift
-        p: 0.0
+        p: 0.02
         max_shift: 0.01
   val_dataset:
     _target_: src.nn_datasets.components.eegdataset_clean.HMSTestData
@@ -103,7 +103,7 @@ hydra:
 model:
   _target_: src.nn_models.litmodels.LitModel
   optimizer:
-    _target_: timm.optim.MADGRAD
+    _target_: timm.optim.AdamP
     _partial_: true
     lr: 0.001
     weight_decay: 0.0001
@@ -118,27 +118,27 @@ model:
 
   scheduler_interval: "epoch"
   net:
-    _target_: src.nn_models.conv1dmodels.InceptionConv1DModel
+    _target_: src.nn_models.conv1dmodels.InceptionStackedModel
     in_channels: 16
     out_channels: 6
     features:
-      - 8
-      - 16
-      - 32
-      - 64
-      - 128
+      - 6
+      - 12
+      - 24
+      - 48
+      - 96
     kernel_sizes:
       - 3
       - 3
       - 3
       - 3 
       - 3
-    model_name: "tf_efficientnet_b1"
+    model_name: "xcit_nano_12_p16_384.fb_dist_in1k"
     use_stem_rnn: false
     use_feature_rnn: false
     dropout: 0.0
     use_bnorm: true
-    bnorm: "batch"
+    bnorm: "instance"
     conv2d_stride: 2
   differential_lr: false
   compile: false
@@ -147,7 +147,7 @@ model:
   mixup: false
   mixup_alpha: 0.8
   sim_mse: true
-  sim_mse_alpha: 0.1
+  sim_mse_alpha: 0.2
 
 
 callbacks:

@@ -20,7 +20,7 @@ tags: ["clean", "1d"]
 
 seed: 12345786
 
-version: "effb1_clean"
+version: "effb1_clean_pseudo"
 
 paths:
   root_dir: "/mnt/mohsin/kaggle/hms_brain_activity"
@@ -51,8 +51,7 @@ data:
     eeg_dir: ${data.data_dir}/train_eegs
     preprocessor: ${preprocess}
     max_weight: 20
-    unq_batch:
-      - eeg_id
+    unq_batch: eeg_id
     transforms:
       - _target_: src.nn_augs.eeg_transforms.SideSwap
         p: 0.5
@@ -90,11 +89,14 @@ data:
     _partial_: true
     eeg_dir: ${data.data_dir}/test_eegs
     preprocessor: ${preprocess}
-  batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+  batch_size: 64 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
   num_folds: 5
   fold_id: 4
   num_workers: 24
   pin_memory: true
+  pseudo_label_filepath: /home/mohsin/testing/hms_benchmark/logs/train/val_outputs/ensemble/val_preds_clean.csv
+  pseudo_label_weight: 20
+
 
 hydra:
   run:
@@ -105,7 +107,7 @@ model:
   optimizer:
     _target_: timm.optim.MADGRAD
     _partial_: true
-    lr: 0.001
+    lr: 0.002
     weight_decay: 0.0001
     #nesterov: true
     #momentum: 0.9
@@ -137,7 +139,7 @@ model:
     use_stem_rnn: false
     use_feature_rnn: false
     dropout: 0.0
-    use_bnorm: true
+    use_bnorm: false
     bnorm: "batch"
     conv2d_stride: 2
   differential_lr: false
@@ -148,6 +150,8 @@ model:
   mixup_alpha: 0.8
   sim_mse: true
   sim_mse_alpha: 0.1
+  freeze_bnorm: true
+  finetune: true
 
 
 callbacks:

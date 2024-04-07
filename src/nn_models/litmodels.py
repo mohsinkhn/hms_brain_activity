@@ -67,10 +67,13 @@ class LitModel(L.LightningModule):
         sim_mse: bool = False,
         sim_mse_alpha: float = 0.1,
         pretrain_path: str = None,
+        freeze_bnorm: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
         self.model = net
+        if freeze_bnorm:
+            self.model.freeze_batch_norm()
         self.validation_step_outputs = []
         self.test_step_outputs = []
         self.criterion = KLDivLossWithLogits()
@@ -89,15 +92,15 @@ class LitModel(L.LightningModule):
         if self.hparams.use_sample_weights:
             sample_weight = batch.get("sample_weight", None)
             if (self.hparams.finetune) & (sample_weight is not None) and (
-                self.current_epoch == self.trainer.max_epochs - 1
+                self.current_epoch >= self.trainer.max_epochs - 3
             ):
                 print("droping low confidence samples")
-                sample_weight[sample_weight < 7] = 0.1
+                sample_weight[sample_weight < 10] = 0.01
         else:
             sample_weight = None
 
         if self.training and (self.hparams.mixup or self.hparams.sim_mse):
-            x = self.model.forward_features(x, batch.get("spec", None))
+            x = self.model.forward_features(x, batch.get("spec_data", None))
             if self.hparams.sim_mse:
                 feats = x / x.norm(dim=1, keepdim=True)
                 feats_sim = feats @ feats.T  # b x b
@@ -113,7 +116,7 @@ class LitModel(L.LightningModule):
                 x, y = mixup(x, y, self.hparams.mixup_alpha)
                 logits = self.model.classifier(x)
         else:
-            logits = self.forward(x, batch.get("spec", None))
+            logits = self.forward(x, batch.get("spec_data", None))
         loss = self.criterion(logits, y, sample_weight=sample_weight)
         return loss, logits, y
 
