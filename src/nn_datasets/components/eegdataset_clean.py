@@ -164,6 +164,47 @@ class HMSTestData(Dataset):
         }
 
 
+class HMSTestDataKG(Dataset):
+    def __init__(
+        self, df: pd.DataFrame, eeg_dir: Union[str, Path], preprocessor: Preprocessor
+    ):
+        self.eeg_ids, self.offsets, self.targets = parse_dataframe(df)
+        self.preprocessor = preprocessor
+
+        self.unq_eeg_ids = df["eeg_id"].unique().tolist()
+        self.eeg_dir = eeg_dir
+        # self.eegs_data = load_data(self.unq_eeg_ids, eeg_dir)
+
+    def __len__(self):
+        return len(self.eeg_ids)
+
+    def __getitem__(self, index):
+        eeg_id = self.eeg_ids[index]
+        offset = self.offsets[index]
+
+        # Get EEG data
+        eeg_data = np.load(Path(self.eeg_dir) / f"{eeg_id}.npy")
+        eeg_data = eeg_data[
+            int(offset * SAMPLE_RATE) : int((offset + EEG_DURATION) * SAMPLE_RATE)
+        ]
+        eeg_data = self.preprocessor(eeg_data)
+
+        target = self.targets[index]
+        total_votes = target.sum()
+        if total_votes == 0:
+            total_votes = 1
+            target = target + 1
+        target = target / total_votes
+
+        return {
+            "eeg_data": eeg_data.astype(np.float32),
+            "targets": target.astype(np.float32),
+            "eeg_id": int(eeg_id),
+            "offset": int(offset),
+            "total_votes": int(total_votes),
+        }
+
+
 def load_data(eeg_ids, eeg_dir):
     eegs_data = {}
     for eeg_id in tqdm(eeg_ids):
