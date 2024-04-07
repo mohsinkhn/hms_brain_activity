@@ -131,7 +131,7 @@ class LitModel(L.LightningModule):
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
-        x = batch["data"]
+        x = batch["eeg_data"]
         logits = self.forward(x)
         self.post_process_test_step(logits, batch, batch_idx)
 

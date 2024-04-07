@@ -15,7 +15,7 @@ defaults:
 
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule
-  - experiment: conv1d_res
+  - experiment: clean_effb1
 
   # config for hyperparameter optimization
   - hparams_search: null
