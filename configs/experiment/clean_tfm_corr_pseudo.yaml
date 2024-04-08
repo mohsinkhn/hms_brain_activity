@@ -149,8 +149,8 @@ model:
   mixup: false
   mixup_alpha: 0.8
   sim_mse: true
-  sim_mse_alpha: 0.2
-  finetune: true  
+  sim_mse_alpha: 0.0
+  finetune: false  
 
 
 callbacks:

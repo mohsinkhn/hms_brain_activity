@@ -94,7 +94,7 @@ data:
   fold_id: 4
   num_workers: 24
   pin_memory: true
-  pseudo_label_filepath: /mnt/mohsin/kaggle/hms_brain_activity/logs/train/val_outputs/ensemble/val_preds_clean_v2.csv
+  pseudo_label_filepath: /home/mohsin/testing/hms_benchmark/logs/train/val_outputs/ensemble/val_preds_clean_v2.csv
   pseudo_label_weight: 20
 
 hydra:
