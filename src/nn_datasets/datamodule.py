@@ -24,6 +24,7 @@ class LitDataModule(LightningDataModule):
         pseudo_label_weight: float = 10,
         num_folds: int = 5,
         fold_id: int = 0,
+        folds_seed: int = 786,
         test_dataset: Optional[Any] = None,
     ):
         super().__init__()
@@ -153,6 +154,7 @@ class LitDataModule(LightningDataModule):
             data_dir=self.hparams.data_dir,
             num_folds=self.hparams.num_folds,
             fold_id=self.hparams.fold_id,
+            seed=self.hparams.folds_seed,
         )
         # Merge pseudo labels if exists
         if self.hparams.pseudo_label_filepath is not None:
@@ -181,10 +183,10 @@ class LitDataModule(LightningDataModule):
         return test_dataset
 
 
-def split_data(data_dir, num_folds, fold_id):
+def split_data(data_dir, num_folds, fold_id, seed=786):
     df = pd.read_csv(Path(data_dir) / "train.csv")
     patient_ids = df["patient_id"].unique()
-    kf = KFold(n_splits=num_folds, shuffle=True, random_state=786)
+    kf = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
     train_idx, val_idx = list(kf.split(patient_ids))[fold_id]
     train_df = df.loc[df["patient_id"].isin(patient_ids[train_idx])]
     val_df = df.loc[df["patient_id"].isin(patient_ids[val_idx])]
@@ -193,7 +195,7 @@ def split_data(data_dir, num_folds, fold_id):
 
 def merge_pseudo_labels(df, pseudo_label_filepath, pseudo_label_weight):
     pseudo_df = pd.read_csv(pseudo_label_filepath)
-    pseudo_df = pseudo_df.loc[pseudo_df["total_votes"] < 20]
+    pseudo_df = pseudo_df.loc[pseudo_df["total_votes"] < 10]
     pseudo_df["eeg_label_offset_seconds"] = pseudo_df[
         "eeg_label_offset_seconds"
     ].astype(int)
@@ -210,7 +212,15 @@ def merge_pseudo_labels(df, pseudo_label_filepath, pseudo_label_weight):
         how="left",
     )
     print(df.shape)
-    for target in TARGET_COLS:
-        df[f"{target}_pred"] = df[f"{target}_pred"].fillna(0)
-        df[target] = df[target] + df[f"{target}_pred"] * pseudo_label_weight
+    gts = df[TARGET_COLS].values
+    gt_sums = gts.sum(axis=1)
+    preds = (
+        df[[f"{target}_pred" for target in TARGET_COLS]].fillna(0).values
+        * pseudo_label_weight
+    )
+    # when num votes greater less than 10, then use pseudo labels and readjust their sum to 9
+    new_gts = gts + preds
+    new_gts_sums = new_gts.sum(axis=1, keepdims=True)
+    new_gts[gt_sums < 10] = new_gts[gt_sums < 10] / new_gts_sums[gt_sums < 10] * 9
+    df[TARGET_COLS] = new_gts
     return df

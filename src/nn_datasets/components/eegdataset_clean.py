@@ -121,6 +121,7 @@ class HMSTrainData(Dataset):
             "eeg_id": int(eeg_id),
             "offset": int(offset),
             "sample_weight": float(min(self.max_weight, total_votes)),
+            "total_votes": int(total_votes),
         }
 
 

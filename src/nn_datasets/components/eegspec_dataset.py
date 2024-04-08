@@ -100,7 +100,9 @@ class HMSTestSpecData(Dataset):
         spec_dir: Union[str, Path],
         preprocessor: Preprocessor,
     ):
-        self.eeg_ids, self.offsets, self.targets = parse_dataframe(df)
+        self.eeg_ids, self.offsets, self.spec_ids, self.spec_offsets, self.targets = (
+            parse_dataframe(df)
+        )
         self.preprocessor = preprocessor
 
         self.unq_eeg_ids = df["eeg_id"].unique().tolist()

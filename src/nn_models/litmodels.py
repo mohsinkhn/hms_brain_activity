@@ -95,7 +95,8 @@ class LitModel(L.LightningModule):
                 self.current_epoch >= self.trainer.max_epochs - 3
             ):
                 print("droping low confidence samples")
-                sample_weight[sample_weight < 10] = 0.01
+                total_votes = batch["total_votes"]
+                sample_weight[sample_weight < 10] = 0.1
         else:
             sample_weight = None
 

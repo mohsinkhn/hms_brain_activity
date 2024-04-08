@@ -446,6 +446,7 @@ class InceptionSpecModel(nn.Module):
             num_classes=0,
             in_chans=in_channels,
             global_pool="",
+            img_size=(96, 576),
         )
         # self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
         self.in_channels = in_channels
@@ -468,15 +469,9 @@ class InceptionSpecModel(nn.Module):
         spec_x = self.preconv(spec_x.permute(0, 3, 2, 1))
         spec_x = self.bn(spec_x)
         spec_x = self.relu(spec_x)
-        x = torch.cat([x[:, :, :, 6:-6], spec_x], dim=-1)
+        x = torch.cat([x[:, :, :, 12:-12], spec_x[:, :, :-4, 6:-6]], dim=-1)
         x = self.conv2d(x)
-
-        if self.old:
-            x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
-        else:
-            x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
-
-        # x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
+        x = torch.cat([x.mean(dim=1), x.max(dim=1).values], dim=1)
         x = x.view(x.size(0), -1)
         return x
 

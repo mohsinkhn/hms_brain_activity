@@ -1,0 +1,170 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data:
+  - override /trainer: default
+  - override /model: 
+  - override /hydra: default
+  - override /callbacks: default
+  - override /paths: default
+
+
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["clean", "1d"]
+
+seed: 12345786
+
+version: "tfm_clean"
+
+paths:
+  root_dir: "/mnt/mohsin/kaggle/hms_brain_activity"
+  data_dir: ${paths.root_dir}/data/
+  log_dir: ${paths.root_dir}/logs/
+
+trainer:
+  min_epochs: 10
+  max_epochs: 20
+  gradient_clip_val: 0.5
+  precision: 16-mixed
+
+preprocess:
+  _target_: src.nn_datasets.components.eegdataset_clean.Preprocessor
+  low_f: 0.33
+  high_f: 20
+  order: 4
+  scale: simple
+  kind: montage
+  notch: 60
+
+data:
+  _target_: src.nn_datasets.datamodule.LitDataModule
+  data_dir: ${paths.data_dir}
+  train_dataset:
+    _target_: src.nn_datasets.components.eegdataset_clean.HMSTrainData
+    _partial_: true
+    eeg_dir: ${data.data_dir}/train_eegs
+    preprocessor: ${preprocess}
+    max_weight: 20
+    unq_batch: eeg_id
+    transforms:
+      - _target_: src.nn_augs.eeg_transforms.SideSwap
+        p: 0.4
+      - _target_: src.nn_augs.eeg_transforms.HorizontalFlip
+        p: 0.4
+      - _target_: src.nn_augs.eeg_transforms.SignFlip
+        p: 0.4
+      - _target_: src.nn_augs.eeg_transforms.AmplitudeChange
+        p: 0.3
+        max_zoom: 0.1
+      - _target_: src.nn_augs.eeg_transforms.GaussianNoise
+        p: 0.3
+        max_noise: 0.05
+      - _target_: src.nn_augs.eeg_transforms.FTSurrogate
+        p: 0.0
+        phase_noise_magnitude: 0.05
+      - _target_: src.nn_augs.eeg_transforms.TimeMask
+        p: 0.2
+        max_mask: 0.05
+      - _target_: src.nn_augs.eeg_transforms.NeighborSwap
+        p: 0.0
+      - _target_: src.nn_augs.eeg_transforms.ChannelMask
+        p: 0.0
+        mask_num: 1
+      - _target_: src.nn_augs.eeg_transforms.MeanShift
+        p: 0.02
+        max_shift: 0.01
+  val_dataset:
+    _target_: src.nn_datasets.components.eegdataset_clean.HMSTestData
+    _partial_: true
+    eeg_dir: ${data.data_dir}/train_eegs
+    preprocessor: ${preprocess}
+  test_dataset:
+    _target_: src.nn_datasets.components.eegdataset_clean.HMSTestData
+    _partial_: true
+    eeg_dir: ${data.data_dir}/test_eegs
+    preprocessor: ${preprocess}
+  batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+  num_folds: 5
+  fold_id: 4
+  num_workers: 24
+  pin_memory: true
+  pseudo_label_filepath: /home/mohsin/testing/hms_benchmark/logs/train/val_outputs/ensemble/val_preds_clean_v2.csv
+  pseudo_label_weight: 20
+
+
+hydra:
+  run:
+    dir: ${paths.log_dir}/${task_name}/runs/${version}/${data.fold_id}
+
+model:
+  _target_: src.nn_models.litmodels.LitModel
+  optimizer:
+    _target_: timm.optim.AdamP
+    _partial_: true
+    lr: 0.001
+    weight_decay: 0.0001
+    #nesterov: true
+    #momentum: 0.9
+
+  scheduler:
+    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    _partial_: true
+    T_max: ${trainer.max_epochs}
+    eta_min: 1e-6
+
+  scheduler_interval: "epoch"
+  net:
+    _target_: src.nn_models.conv1dmodels.InceptionStackedModel
+    in_channels: 16
+    out_channels: 6
+    features:
+      - 6
+      - 12
+      - 24
+      - 48
+      - 96
+    kernel_sizes:
+      - 3
+      - 3
+      - 3
+      - 3 
+      - 3
+    model_name: "xcit_nano_12_p16_384.fb_dist_in1k"
+    use_stem_rnn: false
+    use_feature_rnn: false
+    dropout: 0.0
+    use_bnorm: true
+    bnorm: "instance"
+    conv2d_stride: 2
+  differential_lr: false
+  compile: false
+  val_output_dir: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}
+  use_sample_weights: True
+  mixup: false
+  mixup_alpha: 0.8
+  sim_mse: true
+  sim_mse_alpha: 0.2
+  finetune: true  
+
+
+callbacks:
+  model_checkpoint:
+    dirpath: ${paths.log_dir}/${task_name}/val_outputs/${version}/${data.fold_id}/checkpoints
+    filename: "epoch_{epoch:03d}_fold${data.fold_id}_score2_{val/score:.4f}"
+    monitor: "val/score"
+    mode: "min"
+    
+logger:
+  wandb:
+    name: "${version}_fold${data.fold_id}"
+    tags: ${tags}
+    group: "1Dmodels"
+  aim:
+    experiment: "1d data models" 
+
