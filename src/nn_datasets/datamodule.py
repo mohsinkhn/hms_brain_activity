@@ -11,9 +11,6 @@ import segyio
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from src.nn_datasets.components.gprdataset import GPRDataset
-from src.utils.helper_functions import collate_fn
-
-
 
 class GPRDataModule(LightningDataModule):
     def __init__(
@@ -23,6 +20,7 @@ class GPRDataModule(LightningDataModule):
         num_workers: int = 0,
         window_size: int = 1000,
         stride: int = 800,
+        bboxes_fixed_size = 20,
         pin_memory: bool = False,
         *args, **kwargs
     ):
@@ -51,8 +49,7 @@ class GPRDataModule(LightningDataModule):
             batch_size=self.hparams.batch_size,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=True,
-            collate_fn=collate_fn
+            shuffle=True
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -61,8 +58,7 @@ class GPRDataModule(LightningDataModule):
             batch_size=self.hparams.batch_size,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
-            collate_fn=collate_fn
+            shuffle=False
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -71,6 +67,5 @@ class GPRDataModule(LightningDataModule):
             batch_size=self.hparams.batch_size,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
-            collate_fn=collate_fn
+            shuffle=False
         )

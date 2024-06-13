@@ -5,12 +5,12 @@ import numpy as np
 import os
 import segyio
 
-
 class GPRDataset(Dataset):
-    def __init__(self, root_dir, window_size, stride):
+    def __init__(self, root_dir, window_size, stride, bboxes_fixed_size):
         self.root_dir = root_dir
         self.window_size = window_size
         self.stride = stride
+        self.bboxes_fixed_size = bboxes_fixed_size
         self.files = [f for f in os.listdir(root_dir) if f.endswith('.sgy')]
         self.subfiles = self._generate_subfiles()
 
@@ -50,6 +50,13 @@ class GPRDataset(Dataset):
                 sub_bboxes = bboxes[(bboxes[:, 0] >= start) & (bboxes[:, 2] <= end)].clone()
                 sub_bboxes[:, [0, 2]] -= start  
 
+                # Pad or truncate bboxes to the fixed size
+                if sub_bboxes.shape[0] > self.bboxes_fixed_size:
+                    sub_bboxes = sub_bboxes[:self.bboxes_fixed_size]
+                elif sub_bboxes.shape[0] < self.bboxes_fixed_size:
+                    padding = self.bboxes_fixed_size - sub_bboxes.shape[0]
+                    sub_bboxes = torch.nn.functional.pad(sub_bboxes, (0, 0, 0, padding))
+
                 subfiles.append((sub_traces, sub_bboxes))
 
                 if end == num_traces:
@@ -69,5 +76,3 @@ class GPRDataset(Dataset):
             'bboxes': bboxes
         }
         return sample
-
-
