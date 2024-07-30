@@ -60,7 +60,6 @@ class LitModel(L.LightningModule):
         compile: bool,
         val_output_dir: str = "./data",
         test_output_dir: str = "./data",
-        means: list = [0.157, 0.142, 0.103, 0.065, 0.114, 0.412],
         use_sample_weights: bool = True,
         finetune: bool = False,
         mixup: bool = False,
@@ -68,10 +67,13 @@ class LitModel(L.LightningModule):
         sim_mse: bool = False,
         sim_mse_alpha: float = 0.1,
         pretrain_path: str = None,
+        freeze_bnorm: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
         self.model = net
+        if freeze_bnorm:
+            self.model.freeze_batch_norm()
         self.validation_step_outputs = []
         self.test_step_outputs = []
         self.criterion = KLDivLossWithLogits()
@@ -86,19 +88,20 @@ class LitModel(L.LightningModule):
         return self.model(x, spec_x=spec_x)
 
     def step(self, batch):
-        x, y = batch["data"], batch["targets"]
+        x, y = batch["eeg_data"], batch["targets"]
         if self.hparams.use_sample_weights:
             sample_weight = batch.get("sample_weight", None)
             if (self.hparams.finetune) & (sample_weight is not None) and (
-                self.current_epoch == self.trainer.max_epochs - 1
+                self.current_epoch >= self.trainer.max_epochs - 3
             ):
                 print("droping low confidence samples")
-                sample_weight[sample_weight < 7] = 0.1
+                total_votes = batch["total_votes"]
+                sample_weight[sample_weight < 10] = 0.1
         else:
             sample_weight = None
 
         if self.training and (self.hparams.mixup or self.hparams.sim_mse):
-            x = self.model.forward_features(x, batch.get("spec", None))
+            x = self.model.forward_features(x, batch.get("spec_data", None))
             if self.hparams.sim_mse:
                 feats = x / x.norm(dim=1, keepdim=True)
                 feats_sim = feats @ feats.T  # b x b
@@ -114,7 +117,7 @@ class LitModel(L.LightningModule):
                 x, y = mixup(x, y, self.hparams.mixup_alpha)
                 logits = self.model.classifier(x)
         else:
-            logits = self.forward(x, batch.get("spec", None))
+            logits = self.forward(x, batch.get("spec_data", None))
         loss = self.criterion(logits, y, sample_weight=sample_weight)
         return loss, logits, y
 
@@ -129,7 +132,7 @@ class LitModel(L.LightningModule):
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
-        x = batch["data"]
+        x = batch["eeg_data"]
         logits = self.forward(x)
         self.post_process_test_step(logits, batch, batch_idx)
 
@@ -228,8 +231,8 @@ class LitModel(L.LightningModule):
                 "preds": preds,
                 "y": y,
                 "eeg_id": batch["eeg_id"],
-                "eeg_sub_id": batch["eeg_sub_id"],
-                "num_votes": batch["num_votes"],
+                "eeg_label_offset_seconds": batch["offset"],
+                "total_votes": batch["total_votes"],
             }
         )
 
@@ -245,14 +248,14 @@ class LitModel(L.LightningModule):
         )
 
     def post_process_validation_epoch_end(self, data) -> None:
-        data_df = val_to_dataframe(data, self.hparams.means)
+        data_df = val_to_dataframe(data)
         Path(self.hparams.val_output_dir).mkdir(parents=True, exist_ok=True)
         data_df.write_csv(Path(self.hparams.val_output_dir) / "val_preds.csv")
 
-        val_score = get_comp_score(data_df.filter(pl.col("num_votes") > 3))
+        val_score = get_comp_score(data_df.filter(pl.col("total_votes") > 3))
         self.log("val/score", val_score, on_step=False, on_epoch=True, prog_bar=False)
 
-        val_score2 = get_comp_score(data_df.filter(pl.col("num_votes") > 7))
+        val_score2 = get_comp_score(data_df.filter(pl.col("total_votes") > 7))
         self.log("val/score2", val_score2, on_step=False, on_epoch=True, prog_bar=False)
 
         # table of means
@@ -298,31 +301,31 @@ class LitModel(L.LightningModule):
             .sample(8)
             .to_pandas()
         )
-        batch_x, batch_y, preds = [], [], []
-        for i, row in data_df.iterrows():
-            np_data = load_eeg_data(
-                Path("./data/train_eegs"),
-                int(row["eeg_id"]),
-                int(row["eeg_sub_id"]),
-            )
-            batch_x.append(np_data)
-            batch_y.append([row[f"{col}_true"] for col in TARGET_COLS])
-            preds.append([row[f"{col}_pred"] for col in TARGET_COLS])
-        batch_x = np.stack(batch_x)
-        batch_y = np.array(batch_y)
-        preds = np.array(preds)
-        plot_zoomed_batch(
-            batch_x,
-            batch_y,
-            preds=preds,
-            start=4000,
-            n=2000,
-            save_path=f"./val_errors/tmp.jpg",
-        )
-        wandb.log({"val/errors": wandb.Image(f"./val_errors/tmp.jpg")})
+        # batch_x, batch_y, preds = [], [], []
+        # for i, row in data_df.iterrows():
+        #     np_data = np.load(
+        #         Path("./data/train_eegs"),
+        #         int(row["eeg_id"]),
+        #         int(row["eeg_label_offset_seconds"]),
+        #     )
+        #     batch_x.append(np_data)
+        #     batch_y.append([row[f"{col}_true"] for col in TARGET_COLS])
+        #     preds.append([row[f"{col}_pred"] for col in TARGET_COLS])
+        # batch_x = np.stack(batch_x)
+        # batch_y = np.array(batch_y)
+        # preds = np.array(preds)
+        # plot_zoomed_batch(
+        #     batch_x,
+        #     batch_y,
+        #     preds=preds,
+        #     start=4000,
+        #     n=2000,
+        #     save_path=f"./val_errors/tmp.jpg",
+        # )
+        # wandb.log({"val/errors": wandb.Image(f"./val_errors/tmp.jpg")})
 
     def post_process_test_epoch_end(self, data) -> None:
-        data_df = test_to_dataframe(data, self.hparams.means)
+        data_df = test_to_dataframe(data)
         data_df.write_csv(Path(self.hparams.test_output_dir) / "submission.csv")
 
 

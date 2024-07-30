@@ -95,7 +95,7 @@ model:
       - 3
       - 3 
       - 3
-    model_name: "xcit_tiny_12_p8_384.fb_dist_in1k	"
+    model_name: "xcit_tiny_12_p8_384.fb_dist_in1k"
     use_stem_rnn: false
     use_feature_rnn: false
     dropout: 0.0

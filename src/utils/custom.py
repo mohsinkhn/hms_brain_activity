@@ -6,7 +6,7 @@ from src.settings import TARGET_COLS
 from src.kaggle_metric import score
 
 
-def val_to_dataframe(data, means):
+def val_to_dataframe(data):
     # data["preds"] = correct_means(data["preds"], np.array(means))
     # data["preds"] = norm_preds(data["preds"])
     for i, col in enumerate(TARGET_COLS):
@@ -17,7 +17,7 @@ def val_to_dataframe(data, means):
     return pl.DataFrame(data)
 
 
-def test_to_dataframe(data, means):
+def test_to_dataframe(data):
     # data["preds"] = correct_means(data["preds"], np.array(means))
     for i, col in enumerate(TARGET_COLS):
         data[f"{col}"] = data["preds"][:, i]

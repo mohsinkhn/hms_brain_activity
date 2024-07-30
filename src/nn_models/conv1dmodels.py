@@ -1,7 +1,72 @@
+import numpy as np
 import timm
 import torch
 from torch import nn
 import torch.nn.functional as F
+
+
+class BlurPool1D(nn.Module):
+    def __init__(self, channels, pad_type="reflect", filt_size=3, stride=2, pad_off=0):
+        super(BlurPool1D, self).__init__()
+        self.filt_size = filt_size
+        self.pad_off = pad_off
+        self.pad_sizes = [
+            int(1.0 * (filt_size - 1) / 2),
+            int(np.ceil(1.0 * (filt_size - 1) / 2)),
+        ]
+        self.pad_sizes = [pad_size + pad_off for pad_size in self.pad_sizes]
+        self.stride = stride
+        self.off = int((self.stride - 1) / 2.0)
+        self.channels = channels
+
+        # print('Filter size [%i]' % filt_size)
+        if self.filt_size == 1:
+            a = np.array(
+                [
+                    1.0,
+                ]
+            )
+        elif self.filt_size == 2:
+            a = np.array([1.0, 1.0])
+        elif self.filt_size == 3:
+            a = np.array([1.0, 2.0, 1.0])
+        elif self.filt_size == 4:
+            a = np.array([1.0, 3.0, 3.0, 1.0])
+        elif self.filt_size == 5:
+            a = np.array([1.0, 4.0, 6.0, 4.0, 1.0])
+        elif self.filt_size == 6:
+            a = np.array([1.0, 5.0, 10.0, 10.0, 5.0, 1.0])
+        elif self.filt_size == 7:
+            a = np.array([1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0])
+
+        filt = torch.Tensor(a)
+        filt = filt / torch.sum(filt)
+        self.register_buffer("filt", filt[None, None, :].repeat((self.channels, 1, 1)))
+
+        self.pad = get_pad_layer_1d(pad_type)(self.pad_sizes)
+
+    def forward(self, inp):
+        if self.filt_size == 1:
+            if self.pad_off == 0:
+                return inp[:, :, :: self.stride]
+            else:
+                return self.pad(inp)[:, :, :: self.stride]
+        else:
+            return F.conv1d(
+                self.pad(inp), self.filt, stride=self.stride, groups=inp.shape[1]
+            )
+
+
+def get_pad_layer_1d(pad_type):
+    if pad_type in ["refl", "reflect"]:
+        PadLayer = nn.ReflectionPad1d
+    elif pad_type in ["repl", "replicate"]:
+        PadLayer = nn.ReplicationPad1d
+    elif pad_type == "zero":
+        PadLayer = nn.ZeroPad1d
+    else:
+        print("Pad type [%s] not recognized" % pad_type)
+    return PadLayer
 
 
 class GeM(nn.Module):
@@ -53,6 +118,19 @@ class ConvBnSilu(nn.Module):
             padding=padding,
             bias=False,
         )
+        if use_bnorm:
+            if bnorm == "batch":
+                self.bn = nn.BatchNorm1d(out_channels)
+            elif bnorm == "group":
+                self.bn = nn.GroupNorm(4, out_channels)
+            elif bnorm == "instance":
+                self.bn = nn.InstanceNorm1d(out_channels)
+            elif bnorm == "layer":
+                self.bn = nn.LayerNorm(out_channels)
+            elif bnorm == "none":
+                self.bn = None
+            else:
+                raise ValueError("Batchnorm type not recognized")
         self.bn = nn.BatchNorm1d(out_channels)
         self.bnorm = bnorm
         self.silu = nn.SiLU(inplace=True)
@@ -126,6 +204,7 @@ class InceptionResBlock(nn.Module):
             in_channels, feat, kernel_size, use_bnorm=use_bnorm, bnorm=bnorm
         )
         self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
+        # self.pool = BlurPool1D(feat, filt_size=3, stride=2, pad_off=0)
 
     def forward(self, x):
         x = self.drop(x)
@@ -230,6 +309,20 @@ class InceptionConv1DModel(nn.Module):
         x = self.classifier(x)
         return x
 
+    def freeze_batch_norm(self):
+        layers = [mod for mod in self.conv2d.children()]
+        for layer in layers:
+            if isinstance(layer, nn.BatchNorm2d):
+                # print(layer)
+                for param in layer.parameters():
+                    param.requires_grad = False
+
+            elif isinstance(layer, nn.Sequential):
+                for seq_layers in layer.children():
+                    if isinstance(layer, nn.BatchNorm2d):
+                        # print(layer)
+                        param.requires_grad = False
+
 
 class InceptionStackedModel(nn.Module):
     def __init__(
@@ -270,8 +363,9 @@ class InceptionStackedModel(nn.Module):
             num_classes=0,
             in_chans=in_channels,
             global_pool="",
-            img_size=(128, 304),
+            img_size=(96, 288),
         )
+
         # self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
         self.in_channels = in_channels
         self.use_stem_rnn = use_stem_rnn
@@ -291,7 +385,7 @@ class InceptionStackedModel(nn.Module):
         x = x.permute(0, 2, 1).contiguous().view(b * c, 1, l)
         x = self.conv1d_encoder(x)
         x = x.view(b, c, x.shape[1], x.shape[2])
-        x = x[:, :, :, 4:-4]
+        x = x[:, :, :, 12:-12]
         x = self.conv2d(x)
         x = torch.cat([x.mean(dim=1), x.max(dim=1).values], dim=1)
         x = x.view(x.size(0), -1)
@@ -301,6 +395,20 @@ class InceptionStackedModel(nn.Module):
         x = self.forward_features(x, spec_x)
         x = self.classifier(x)
         return x
+
+    def freeze_batch_norm(self):
+        layers = [mod for mod in self.conv2d.children()]
+        for layer in layers:
+            if isinstance(layer, nn.BatchNorm2d):
+                # print(layer)
+                for param in layer.parameters():
+                    param.requires_grad = False
+
+            elif isinstance(layer, nn.Sequential):
+                for seq_layers in layer.children():
+                    if isinstance(layer, nn.BatchNorm2d):
+                        # print(layer)
+                        param.requires_grad = False
 
 
 class InceptionSpecModel(nn.Module):
@@ -329,15 +437,16 @@ class InceptionSpecModel(nn.Module):
             use_bnorm=use_bnorm,
             bnorm=bnorm,
         )
-        self.preconv = nn.Conv2d(4, 8, 3, 1, padding=1)
-        self.bn = nn.BatchNorm2d(8)
+        self.preconv = nn.Conv2d(4, in_channels, 3, 1, padding=1)
+        self.bn = nn.BatchNorm2d(in_channels)
         self.relu = nn.SELU()
         self.conv2d = timm.create_model(
             model_name,
             pretrained=pretrained,
             num_classes=0,
-            in_chans=in_channels + 8,
+            in_chans=in_channels,
             global_pool="",
+            img_size=(96, 576),
         )
         # self.conv2d.conv_stem.stride = (conv2d_stride, conv2d_stride)
         self.in_channels = in_channels
@@ -360,15 +469,9 @@ class InceptionSpecModel(nn.Module):
         spec_x = self.preconv(spec_x.permute(0, 3, 2, 1))
         spec_x = self.bn(spec_x)
         spec_x = self.relu(spec_x)
-        x = torch.cat([x[:, :, :, 6:-6], spec_x], dim=1)
+        x = torch.cat([x[:, :, :, 12:-12], spec_x[:, :, :-4, 6:-6]], dim=-1)
         x = self.conv2d(x)
-
-        if self.old:
-            x = torch.cat([self.max_pool(x), self.avg_pool(x)], dim=1)
-        else:
-            x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
-
-        # x = torch.cat([self.avg_pool(x), self.max_pool(x)], dim=1)
+        x = torch.cat([x.mean(dim=1), x.max(dim=1).values], dim=1)
         x = x.view(x.size(0), -1)
         return x
 
